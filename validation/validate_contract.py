@@ -633,9 +633,39 @@ def point_regimes_partition_the_line() -> Point:
     )
 
 
+
+def point_the_emulated_stitch_flips_the_verdict_across_a_regime() -> Point:
+    """Section 9, item 7, to the letter: the flip comes out of the delay node.
+
+    The monotone sweep above drives the envelope directly; this point drives it
+    through the emulated controller instead, so the demonstrated path is probe
+    -> measurement -> envelope -> verdict, with nothing hand-set but the
+    distance. Same job, two lengths of glass, opposite answers.
+    """
+    near_node = DelayNode("stitch-ab", distance_km=40.0)
+    far_node = DelayNode("stitch-ab", distance_km=400.0)
+    near = validate(apply_measurement(
+        clean_envelope(), EmulatedController((near_node,)).probe("stitch-ab")))
+    far = validate(apply_measurement(
+        clean_envelope(), EmulatedController((far_node,)).probe("stitch-ab")))
+    ok = (near.decision is Decision.SPAN
+          and far.decision in (Decision.DENY, Decision.ESCALATE)
+          and near.decision is not far.decision)
+    return Point(
+        "the-emulated-stitch-flips-the-verdict-across-a-regime",
+        "emergent",
+        ok,
+        f"40 km of emulated glass measures {near_node.rtt_us:.0f} us and the job "
+        f"may span; 400 km measures {far_node.rtt_us:.0f} us, crosses the "
+        f"synchronous-training regime bound, and the same job is refused "
+        f"({far.decision.value}) --- the flip the delay node exists to prove",
+    )
+
+
 REGISTRY: Tuple[Callable[[], Point], ...] = (
     point_propagation_matches_published_rule_of_thumb,
     point_refusal_is_monotone_in_distance,
+    point_the_emulated_stitch_flips_the_verdict_across_a_regime,
     point_redundancy_collapses_blast_radius_in_one_step,
     point_every_fail_closed_condition_is_one_edit_away,
     point_rule_order_does_not_change_the_verdict,

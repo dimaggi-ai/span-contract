@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1 — 2026-09-02
+
+- One registry point added, closing specification section 9 item 7 to the
+  letter: the same job probed through the emulated delay node at 40 km spans
+  and at 400 km is refused, so the demonstrated flip runs probe → measurement
+  → envelope → verdict with nothing hand-set but the distance. (The monotone
+  RTT sweep already showed the flip; it drove the envelope directly.)
+- The severity-ladder mutation's measured red set gains the new point; the
+  unmutated control now expects nineteen.
+
 ## 1.0.0 — 2026-09-01
 
 First release.
@@ -20,7 +30,7 @@ First release.
   entry stamped with a topology that is gone.
 - An emulated delay node, and the `tc` line that reproduces it on real kernels.
 - A hash-chained audit record, as a shape rather than a system.
-- Validation registry: 18 points — 1 calibrated, 7 emergent, 10 sanity — and 9
+- Validation registry: 18 points at 1.0.0 — 1 calibrated, 7 emergent, 10 sanity — and 9
   declined checks printed on every run.
 - 91 tests, including 12 mutation tests that delete machinery and require a named
   set of registry points to go red.

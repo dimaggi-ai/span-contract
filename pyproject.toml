@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "span-contract"
-version = "1.0.0"
+version = "1.0.1"
 description = "An admission contract for AI training jobs that cross a data hall boundary"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -115,7 +115,7 @@ ships no integration. See `DECISIONS.md` D7.
 
 ## 6. What the registry can and cannot establish
 
-Run `make validate`. It prints eighteen points and then prints nine things it
+Run `make validate`. It prints nineteen points and then prints nine things it
 declined to check, and the second list is the more informative one.
 
 **It can establish** that the contract is internally consistent, that its

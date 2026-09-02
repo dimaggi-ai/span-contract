@@ -72,7 +72,7 @@ def test_unmutated_control() -> None:
     """The green control. Without it the mutations below prove nothing."""
     points = reg.run_registry()
     assert red(points) == set(), "the registry must be green before anything is deleted"
-    assert len(points) == 18
+    assert len(points) == 19
 
 
 def test_delete_fail_closed_dark(monkeypatch) -> None:
@@ -159,6 +159,7 @@ def test_flatten_the_severity_ladder(monkeypatch) -> None:
     assert red(reg.run_registry()) == {
         "there-are-six-decisions-on-a-total-order",
         "refusal-is-monotone-in-distance",
+        "the-emulated-stitch-flips-the-verdict-across-a-regime",
         "adding-a-rule-never-permits-more",
         "severity-ladder-dominates-by-construction",
         "every-fail-closed-condition-is-one-edit-away",

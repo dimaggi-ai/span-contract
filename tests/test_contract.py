@@ -383,6 +383,17 @@ def test_a_probe_overwrites_the_declared_path():
     assert env.stitch_api_reachable is True
 
 
+def test_the_delay_node_flips_the_decision_across_a_regime():
+    near = validate(apply_measurement(
+        clean(),
+        EmulatedController((DelayNode("stitch-ab", distance_km=40.0),)).probe("stitch-ab")))
+    far = validate(apply_measurement(
+        clean(),
+        EmulatedController((DelayNode("stitch-ab", distance_km=400.0),)).probe("stitch-ab")))
+    assert near.decision is Decision.SPAN
+    assert far.decision is not Decision.SPAN
+
+
 def test_the_controller_knows_which_stitches_it_has():
     with pytest.raises(KeyError):
         EmulatedController((DelayNode("a", distance_km=1.0),)).probe("b")

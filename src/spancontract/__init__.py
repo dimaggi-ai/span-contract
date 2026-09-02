@@ -33,7 +33,7 @@ from .envelope import (
 from .rules import FAIL_CLOSED_RULE_IDS, RULES, Finding, Policy
 from .validator import Plant, Verdict, audit_record, validate, verify_chain
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 __all__ = [
     "AUTONOMY_LEVELS",
