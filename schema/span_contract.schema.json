@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dimaggi-ai/span-contract/schema/span_contract.schema.json",
+  "title": "Span envelope",
+  "description": "One object per job: what a scheduler, a compiler, and a circuit controller must agree on before the job crosses a hall boundary.",
+  "type": "object",
+  "required": [
+    "scale_out",
+    "span_mode",
+    "span_rtt_us",
+    "span_bw_gbps",
+    "span_failure_domain",
+    "slice_rect",
+    "stitch_id",
+    "stitch_api",
+    "topology_hash",
+    "measured_il_db",
+    "measured_ber",
+    "checkpoint_window_s",
+    "collective_window_s",
+    "ingest_budget_GBps",
+    "thermal_headroom_k",
+    "ride_through_s",
+    "power_headroom_kw",
+    "compile_cache_key",
+    "blast_radius",
+    "autonomy_level",
+    "requested_action"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "scale_out": {
+      "description": "Transport the scale-out plane runs on.",
+      "type": "string",
+      "enum": [
+        "ib",
+        "roce",
+        "ethernet",
+        "ocs_stitched",
+        "metro_roadm",
+        "campus_fiber",
+        "vendor"
+      ]
+    },
+    "span_mode": {
+      "description": "Requested mode. Note that 'escalate' is a decision but not a span_mode; see DECISIONS.md D3.",
+      "type": "string",
+      "enum": [
+        "local",
+        "span",
+        "shrink",
+        "move",
+        "deny"
+      ]
+    },
+    "span_rtt_us": {
+      "description": "Measured round-trip time across the stitch, microseconds.",
+      "type": "number",
+      "minimum": 0.0
+    },
+    "span_bw_gbps": {
+      "description": "Aggregate circuit bandwidth, gigabits per second. Shared, not per-rank.",
+      "type": "number",
+      "minimum": 0.0
+    },
+    "span_failure_domain": {
+      "description": "Name of the domain a single stitch failure takes with it.",
+      "type": "string"
+    },
+    "slice_rect": {
+      "description": "The rectangular reservation this job holds, inside one hall.",
+      "type": "object",
+      "required": [
+        "hall_id",
+        "origin",
+        "extent"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "hall_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "origin": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "extent": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "stitch_id": {
+      "description": "Identity of the circuit this job would cross.",
+      "type": "string"
+    },
+    "stitch_api": {
+      "description": "Where to reach the circuit controller. Unreachable is a refusal.",
+      "type": "string"
+    },
+    "topology_hash": {
+      "description": "Hash of the topology this job was planned against.",
+      "type": "string"
+    },
+    "measured_il_db": {
+      "description": "Measured insertion loss, dB. Measured, not declared.",
+      "type": "number",
+      "minimum": 0.0
+    },
+    "measured_ber": {
+      "description": "Measured pre-FEC bit error rate, as a probability.",
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "checkpoint_window_s": {
+      "description": "Seconds the job needs to write a checkpoint.",
+      "type": "number",
+      "minimum": 0.0
+    },
+    "collective_window_s": {
+      "description": "Seconds between collectives that cross the stitch.",
+      "type": "number",
+      "minimum": 0.0
+    },
+    "ingest_budget_GBps": {
+      "description": "Data-path budget the job is entitled to, GB/s.",
+      "type": "number",
+      "minimum": 0.0
+    },
+    "thermal_headroom_k": {
+      "description": "Kelvin of thermal headroom in the receiving hall.",
+      "type": "number",
+      "minimum": 0.0
+    },
+    "ride_through_s": {
+      "description": "Seconds the hall rides through a power event.",
+      "type": "number",
+      "minimum": 0.0
+    },
+    "power_headroom_kw": {
+      "description": "Spare power in the receiving hall, kW.",
+      "type": "number",
+      "minimum": 0.0
+    },
+    "compile_cache_key": {
+      "description": "sha256(graph | slice_rect | stitch_id).",
+      "type": "string"
+    },
+    "blast_radius": {
+      "description": "Halls whose share of this job stops if the stitch fails.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "autonomy_level": {
+      "description": "L0 through L3. Production training stitches stay at L0/L1.",
+      "type": "string",
+      "enum": [
+        "L0",
+        "L1",
+        "L2",
+        "L3"
+      ]
+    },
+    "requested_action": {
+      "description": "What the job is asking to do, e.g. 'train' or 'infer'.",
+      "type": "string"
+    },
+    "measured_age_s": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0.0,
+      "description": "Age of the last path measurement, seconds. null means never measured."
+    },
+    "stitch_api_reachable": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Whether the controller answered. null means it was not polled."
+    },
+    "labels": {
+      "type": "object",
+      "description": "Free-form, carried to the audit record untouched."
+    }
+  }
+}

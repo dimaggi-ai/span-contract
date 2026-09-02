@@ -1,0 +1,21 @@
+{
+  "halls": [
+    "hall-a",
+    "hall-b"
+  ],
+  "stitches": [
+    {
+      "stitch_id": "stitch-ab",
+      "halls": [
+        "hall-a",
+        "hall-b"
+      ]
+    }
+  ],
+  "job_halls": [
+    "hall-a",
+    "hall-b"
+  ],
+  "anchor": "hall-a",
+  "current_topology_hash": "b7c2000000000000000000000000000000000000000000000000000000000000"
+}
