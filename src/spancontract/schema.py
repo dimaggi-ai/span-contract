@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from .decisions import SPAN_MODES, ScaleOut
-from .envelope import AUTONOMY_LEVELS, SPEC_FIELDS
+from .envelope import AUTONOMY_LEVELS, SPEC_FIELDS, TENANCY_CLASSES
 
 _NUMBER_FIELDS = (
     "span_rtt_us",
@@ -52,6 +52,80 @@ _DESCRIPTIONS = {
     "autonomy_level": "L0 through L3. Production training stitches stay at L0/L1.",
     "requested_action": "What the job is asking to do, e.g. 'train' or 'infer'.",
 }
+
+
+def _tenancy_schema() -> Dict[str, Any]:
+    """The optional tenancy block. Optional in the schema as in the code."""
+    slice_quota = {
+        "type": "object",
+        "required": ["hall_id", "held", "quota"],
+        "additionalProperties": False,
+        "properties": {
+            "hall_id": {"type": "string", "minLength": 1},
+            "held": {
+                "type": "integer", "minimum": 0,
+                "description": "Slices the organization already holds in this hall, not counting this job.",
+            },
+            "quota": {
+                "type": "integer", "minimum": 0,
+                "description": "Slices the organization may hold in this hall. Zero is a ban.",
+            },
+        },
+    }
+    co_tenant = {
+        "type": "object",
+        "required": ["org_id", "job_id"],
+        "additionalProperties": False,
+        "properties": {
+            "org_id": {"type": "string", "minLength": 1},
+            "job_id": {"type": "string", "minLength": 1},
+        },
+    }
+    lambda_sharing = {
+        "type": ["object", "null"],
+        "description": (
+            "What is on the wavelength this job's stitch would use, as declared. "
+            "null means the wavelength checks are listed as not checked."
+        ),
+        "required": ["lambda_id"],
+        "additionalProperties": False,
+        "properties": {
+            "lambda_id": {"type": "string", "minLength": 1},
+            "co_tenants": {
+                "type": "array", "uniqueItems": True, "items": co_tenant,
+                "description": "Jobs already carried on the wavelength, and whose they are.",
+            },
+            "must_not_share_with": {
+                "type": "array", "uniqueItems": True, "items": {"type": "string", "minLength": 1},
+                "description": "Job ids this job may never share a wavelength with.",
+            },
+        },
+    }
+    return {
+        "type": ["object", "null"],
+        "description": (
+            "Optional. Who the job belongs to, the isolation it asks for, and the quota "
+            "and wavelength state it declares (section 6 W7). null means the tenant "
+            "predicates TN1-TN4 are listed as not checked; it is not a failure."
+        ),
+        "required": ["org_id", "tenancy_class"],
+        "additionalProperties": False,
+        "properties": {
+            "org_id": {"type": "string", "minLength": 1},
+            "tenancy_class": {
+                "type": "string", "enum": list(TENANCY_CLASSES),
+                "description": "dedicated: the wavelength carries this job alone. shared: co-tenants from the job's own organization are accepted.",
+            },
+            "slices": {
+                "type": "array", "uniqueItems": True, "items": slice_quota,
+                "description": (
+                    "One entry per hall the job takes a slice in. Must include the hall "
+                    "the slice_rect sits in."
+                ),
+            },
+            "lambda_sharing": lambda_sharing,
+        },
+    }
 
 
 def envelope_schema() -> Dict[str, Any]:
@@ -104,6 +178,7 @@ def envelope_schema() -> Dict[str, Any]:
         "type": "object",
         "description": "Free-form, carried to the audit record untouched.",
     }
+    properties["tenancy"] = _tenancy_schema()
 
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -4,15 +4,17 @@ title: "The span contract: an admission decision for AI training jobs that cross
 abstract: >-
   A single object a job carries when it asks to run across more than one data
   hall, carrying the twenty-one facts a scheduler, a compiler and a circuit
-  controller must agree on before it starts; six decisions the contract can
-  return; three conditions under which it refuses rather than guesses; and a
-  reference validator that turns the first into the second and prints its
-  reasons, including the checks it declined to make.
+  controller must agree on before it starts, plus an optional tenancy
+  declaration; six decisions the contract can return; three conditions under
+  which it refuses rather than guesses; four tenant predicates that are listed
+  as unchecked, not failed, when tenancy is undeclared; and a reference
+  validator that turns the first into the second and prints its reasons,
+  including the checks it declined to make.
 authors:
   - family-names: Nanyonga
     given-names: Margaret
-version: 1.0.0
-date-released: "2026-09-01"
+version: 1.1.0
+date-released: "2026-09-02"
 license: MIT
 repository-code: "https://github.com/dimaggi-ai/span-contract"
 keywords:
@@ -21,3 +23,4 @@ keywords:
   - data center interconnect
   - optical circuit switching
   - capacity planning
+  - multi-tenancy

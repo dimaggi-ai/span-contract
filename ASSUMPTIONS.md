@@ -72,3 +72,23 @@ list says so.
 the specification's.** The rules only ever test membership in a set, never an
 inequality, so the ordering is not relied on — but the field name implies it and
 a reader will assume it.
+
+**A12. The declared quota state is current at the moment of admission.**
+`held` and `quota` are a snapshot the caller took. The contract does not
+serialise admissions and does not try to. *If wrong* — two admissions race for
+an organization's last slice in a hall — both pass TN1, and the slice packer,
+which holds the real count, catches the second late. The contract's verdict is
+right about the envelope it was given and wrong about the hall.
+
+**A13. The declared occupancy list is complete.**
+`lambda_sharing.co_tenants` is everything already on the wavelength. Nothing
+here can see the wavelength. *If wrong:* an undeclared job shares it and TN2,
+TN3 and TN4 all pass. This is the most likely way for a green tenancy verdict to
+be wrong about a real plant, and the DECLINED list says so.
+
+**A14. A spanning job takes one slice in each hall it declares.**
+TN1 counts this job as one more slice in every hall in `tenancy.slices`, which
+is why `held` excludes it. *If wrong* — a job that takes two rectangles in one
+hall — the quota check under-counts by one there. A5 fixes the envelope's own
+reservation as one rectangle in one hall; the block extends that shape to each
+hall the job crosses, so this is the same assumption seen from the quota's side.

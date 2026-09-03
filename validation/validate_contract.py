@@ -40,7 +40,7 @@ import json
 import math
 import random
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -51,15 +51,20 @@ from spancontract import (  # noqa: E402
     RULES,
     SPAN_MODES,
     SPEC_FIELDS,
+    TENANT_RULE_IDS,
     CompileCache,
+    CoTenant,
     Decision,
+    LambdaSharing,
     Plant,
     Policy,
     ScaleOut,
+    SliceQuota,
     SliceRect,
     SpanEnvelope,
     SpanGraph,
     Stitch,
+    Tenancy,
     audit_record,
     blast_radius,
     compile_cache_key,
@@ -157,6 +162,19 @@ DECLINED: Tuple[Tuple[str, str], ...] = (
         "netem_command is emitted, never executed here. Whether the kernel reproduces "
         "the modelled path is untested in this repository.",
     ),
+    (
+        "any organization's slice quota",
+        "held and quota are declared on the envelope by the caller. No published figure "
+        "fixes how many slices an organization may take in a hall, and the contract does "
+        "not fetch the count. The quota rule is checked for effect, never for correctness.",
+    ),
+    (
+        "whether the declared wavelength occupancy is true",
+        "co_tenants is a list the caller supplies; the contract cannot see the wavelength. "
+        "An occupancy that is wrong on the envelope is wrong in the verdict. The audit "
+        "record carries the declaration so the error is findable afterwards, not so it "
+        "is caught at admission.",
+    ),
 )
 
 
@@ -203,8 +221,58 @@ def clean_envelope(**kw: Any) -> SpanEnvelope:
     return env
 
 
+def clean_tenancy(**kw: Any) -> Tenancy:
+    """A tenancy block every tenant predicate clears.
+
+    Room under the quota in both halls, and a wavelength shared only with the
+    organization's own other job, so each predicate is one edit away.
+    """
+    base: Dict[str, Any] = dict(
+        org_id="org-blue",
+        tenancy_class="shared",
+        slices=(SliceQuota("hall-a", held=2, quota=4), SliceQuota("hall-b", held=1, quota=4)),
+        lambda_sharing=LambdaSharing("ch-33", co_tenants=(CoTenant("org-blue", "job-1"),)),
+    )
+    base.update(kw)
+    return Tenancy(**base)
+
+
+#: The jobs a random wavelength may already carry. One belongs to another
+#: organization, so the population reaches TN2; two belong to the job's own,
+#: so it reaches TN3 and TN4 without reaching TN2.
+CO_TENANT_POOL = (
+    CoTenant("org-blue", "job-1"),
+    CoTenant("org-red", "job-7"),
+    CoTenant("org-blue", "job-9"),
+)
+
+
+def random_tenancy(rng: random.Random) -> Tenancy:
+    """A randomly declared tenancy block: sometimes within quota, sometimes not."""
+    slices = [SliceQuota("hall-a", held=rng.choice([0, 2, 3, 4]), quota=rng.choice([0, 2, 4]))]
+    if rng.random() < 0.5:
+        slices.append(SliceQuota("hall-b", held=rng.choice([0, 2, 3, 4]), quota=rng.choice([0, 2, 4])))
+    sharing: Optional[LambdaSharing] = None
+    if rng.random() >= 0.25:
+        pool = list(CO_TENANT_POOL)
+        rng.shuffle(pool)
+        co_tenants = tuple(pool[: rng.choice([0, 1, 2])])
+        bans = tuple(job for job in ("job-1", "job-7", "job-9") if rng.random() < 0.25)
+        sharing = LambdaSharing("ch-33", co_tenants=co_tenants, must_not_share_with=bans)
+    return Tenancy(
+        org_id=rng.choice(["org-blue", "org-red"]),
+        tenancy_class=rng.choice(["dedicated", "shared"]),
+        slices=tuple(slices),
+        lambda_sharing=sharing,
+    )
+
+
 def random_envelope(rng: random.Random) -> SpanEnvelope:
-    """A randomly damaged envelope, for population-level orderings."""
+    """A randomly damaged envelope, for population-level orderings.
+
+    Half the population declares a tenancy block and half does not, so every
+    population point sees both the checked and the taken-on-trust path.
+    """
     env = clean_envelope(
         span_mode=rng.choice(SPAN_MODES),
         span_rtt_us=rng.choice([0.5, 3.0, 40.0, 400.0, 1_500.0, 9_000.0, 40_000.0]),
@@ -224,6 +292,8 @@ def random_envelope(rng: random.Random) -> SpanEnvelope:
         env = env.replace(stitch_api_reachable=rng.choice([False, None]))
     if rng.random() < 0.25:
         env = env.replace(measured_age_s=rng.choice([None, 10.0, 6_000.0]))
+    if rng.random() < 0.5:
+        env = env.replace(tenancy=random_tenancy(rng))
     return env
 
 
@@ -351,8 +421,10 @@ def point_rule_order_does_not_change_the_verdict() -> Point:
     """Shuffling the rule list leaves every verdict in a random population identical."""
     rng = random.Random(SEED)
     mismatches = 0
+    declared = 0
     for _ in range(POPULATION):
         env = random_envelope(rng)
+        declared += env.tenancy is not None
         reference = validate(env).decision
         shuffled = list(RULES)
         rng.shuffle(shuffled)
@@ -362,8 +434,8 @@ def point_rule_order_does_not_change_the_verdict() -> Point:
         "rule-order-does-not-change-the-verdict",
         "emergent",
         mismatches == 0,
-        f"{POPULATION} random envelopes, each evaluated against a shuffled rule list; "
-        f"{mismatches} disagreements",
+        f"{POPULATION} random envelopes, {declared} of them carrying a tenancy block, each "
+        f"evaluated against a shuffled list of {len(RULES)} rules; {mismatches} disagreements",
     )
 
 
@@ -443,6 +515,153 @@ def point_severity_ladder_dominates_by_construction() -> Point:
     )
 
 
+def point_each_tenant_predicate_is_one_edit_away() -> Point:
+    """Each of the four tenant predicates turns a clean SPAN into a DENY alone.
+
+    The tenancy counterpart of the fail-closed point above, from a reference
+    envelope that declares its tenancy and clears every predicate.
+    """
+    base = clean_envelope(tenancy=clean_tenancy())
+    baseline = validate(base)
+    if baseline.decision is not Decision.SPAN or any(
+        line.startswith("TN") for line in baseline.not_checked
+    ):
+        return Point(
+            "each-tenant-predicate-is-one-edit-away",
+            "emergent",
+            False,
+            f"the reference tenancy block no longer clears every predicate (verdict "
+            f"{baseline.decision.value}, gaps {[l[:7] for l in baseline.not_checked]}), so "
+            "'one edit away from a refusal' cannot be measured from it",
+        )
+    room = (SliceQuota("hall-a", held=2, quota=4), SliceQuota("hall-b", held=1, quota=4))
+    edits = {
+        "TN1": base.replace(tenancy=clean_tenancy(
+            slices=(SliceQuota("hall-a", held=4, quota=4),) + room[1:])),
+        "TN2": base.replace(tenancy=clean_tenancy(
+            lambda_sharing=LambdaSharing("ch-33", co_tenants=(CoTenant("org-red", "job-7"),)))),
+        "TN3": base.replace(tenancy=clean_tenancy(tenancy_class="dedicated")),
+        "TN4": base.replace(tenancy=clean_tenancy(
+            lambda_sharing=LambdaSharing("ch-33", co_tenants=(CoTenant("org-blue", "job-1"),),
+                                         must_not_share_with=("job-1",)))),
+    }
+    fired: Dict[str, bool] = {}
+    for rule_id, env in edits.items():
+        verdict = validate(env)
+        ids = {f.rule_id for f in verdict.findings}
+        fired[rule_id] = verdict.decision is Decision.DENY and ids == {rule_id}
+    return Point(
+        "each-tenant-predicate-is-one-edit-away",
+        "emergent",
+        all(fired.values()) and set(fired) == set(TENANT_RULE_IDS),
+        "from a clean SPAN with a declared tenancy, one edit reaches each predicate in "
+        "isolation: " + ", ".join(f"{k} {'yes' if v else 'NO'}" for k, v in fired.items()),
+    )
+
+
+def point_refusal_is_monotone_in_slices_held() -> Point:
+    """Holding more slices in a hall never makes the contract more permissive."""
+    quota = 4
+    sweep = tuple(range(0, 7))
+    seen: List[Decision] = []
+    previous = -1
+    ok = True
+    worst = ""
+    for held in sweep:
+        tenancy = clean_tenancy(slices=(SliceQuota("hall-a", held=held, quota=quota),))
+        decision = validate(clean_envelope(tenancy=tenancy)).decision
+        seen.append(decision)
+        if decision.severity < previous:
+            ok = False
+            worst = f"the verdict relaxed at held={held}"
+        previous = max(previous, decision.severity)
+    # As with distance: a constant sweep is monotone, so the verdict must move
+    # for this to be a check on the quota rule rather than on the word.
+    moved = len(set(seen)) >= 2
+    if not moved:
+        worst = worst or "the verdict never changed as held rose past the quota, so this " \
+                         "point could not distinguish a live quota rule from a dead one"
+    first = next((h for h, d in zip(sweep, seen) if d is not Decision.SPAN), None)
+    return Point(
+        "refusal-is-monotone-in-slices-held",
+        "emergent",
+        ok and moved,
+        worst or f"held swept {sweep[0]}..{sweep[-1]} against a quota of {quota}: "
+        + ", ".join(f"{h}:{d.value}" for h, d in zip(sweep, seen))
+        + f"; the verdict never relaxes, and the first refusal is at held={first}",
+    )
+
+
+def point_adding_a_co_tenant_never_permits_more() -> Point:
+    """Another job on the wavelength never relaxes the verdict, and sometimes hardens it.
+
+    Drawn from clean envelopes with a random tenancy block rather than from the
+    randomly damaged population: the join is a maximum, so damage elsewhere
+    only raises the floor and would leave the second count near zero, which
+    is the count that makes this a check on the sharing rules and not on the
+    definition of monotone.
+    """
+    rng = random.Random(SEED + 4)
+    considered = violations = harsher = 0
+    for _ in range(POPULATION):
+        env = clean_envelope(tenancy=random_tenancy(rng))
+        tenancy = env.tenancy
+        if tenancy is None or tenancy.lambda_sharing is None:
+            continue
+        sharing = tenancy.lambda_sharing
+        present = {c.job_id for c in sharing.co_tenants}
+        candidates = [c for c in CO_TENANT_POOL if c.job_id not in present]
+        if not candidates:
+            continue
+        extra = rng.choice(candidates)
+        fuller = replace(sharing, co_tenants=sharing.co_tenants + (extra,))
+        more = env.replace(tenancy=replace(tenancy, lambda_sharing=fuller))
+        before = validate(env).decision.severity
+        after = validate(more).decision.severity
+        considered += 1
+        if after < before:
+            violations += 1
+        if after > before:
+            harsher += 1
+    return Point(
+        "adding-a-co-tenant-never-permits-more",
+        "emergent",
+        violations == 0 and harsher > 0,
+        f"{considered} of {POPULATION} clean envelopes with a random tenancy declared a "
+        f"wavelength with room for one more job; adding it never relaxed the verdict "
+        f"({violations} violations) and hardened it {harsher} times, so the sharing rules "
+        "were carrying weight",
+    )
+
+
+def point_removing_the_tenancy_block_never_refuses_more() -> Point:
+    """Withholding the declaration is never harsher than making it.
+
+    The other half of DECISIONS.md D13. If an absent block could refuse a job
+    that a declared block admits, the block would be mandatory in all but
+    name; the sanity point below checks that the absence is printed.
+    """
+    rng = random.Random(SEED + 5)
+    considered = violations = relaxed = 0
+    for _ in range(POPULATION):
+        env = clean_envelope(tenancy=random_tenancy(rng))
+        considered += 1
+        declared = validate(env).decision.severity
+        withheld = validate(env.replace(tenancy=None)).decision.severity
+        if withheld > declared:
+            violations += 1
+        if withheld < declared:
+            relaxed += 1
+    return Point(
+        "removing-the-tenancy-block-never-refuses-more",
+        "emergent",
+        violations == 0 and relaxed > 0,
+        f"{considered} clean envelopes with a random tenancy block; with the block removed "
+        f"the verdict was never harsher ({violations} violations) and was more permissive "
+        f"{relaxed} times, which is the cost of taking a declaration on trust",
+    )
+
+
 # --------------------------------------------------------------------------
 # sanity
 # --------------------------------------------------------------------------
@@ -456,7 +675,74 @@ def point_twenty_one_fields() -> Point:
         "sanity",
         n == 21 and set(SPEC_FIELDS) <= declared,
         f"{n} specification fields, all present on the dataclass; "
-        f"{len(declared) - n} further fields carry provenance",
+        f"{len(declared) - n} further fields carry provenance or an optional declaration",
+    )
+
+
+def point_an_absent_tenancy_block_is_listed_as_unchecked_not_refused() -> Point:
+    """DECISIONS.md D13: no tenancy block is a gap in the verdict, never a finding."""
+    reference = validate(clean_envelope())
+    ids = [line.split()[0] for line in reference.not_checked]
+    listed = "TN1" in ids and "TN2-TN4" in ids
+    reference_clean = reference.decision is Decision.SPAN and not any(
+        f.rule_id in TENANT_RULE_IDS for f in reference.findings
+    )
+    local = validate(clean_envelope(span_mode="local")).not_checked
+    local_silent = not any(line.startswith("TN") for line in local)
+    rng = random.Random(SEED + 6)
+    crossing = silent = refused = 0
+    for _ in range(POPULATION):
+        env = random_envelope(rng).replace(tenancy=None)
+        verdict = validate(env)
+        if any(f.rule_id in TENANT_RULE_IDS for f in verdict.findings):
+            refused += 1
+        if env.spans_halls:
+            crossing += 1
+            got = {line.split()[0] for line in verdict.not_checked}
+            if not {"TN1", "TN2-TN4"} <= got:
+                silent += 1
+    return Point(
+        "an-absent-tenancy-block-is-listed-as-unchecked-not-refused",
+        "sanity",
+        reference_clean and listed and local_silent and refused == 0 and silent == 0,
+        f"the reference envelope declares no tenancy, is admitted ({reference.decision.value}) "
+        "and lists TN1 and TN2-TN4 as not checked; across "
+        f"{POPULATION} random envelopes with the block removed no tenant predicate fired "
+        f"({refused} did) and every one of the {crossing} crossing jobs had both gaps listed "
+        f"({silent} silent); a hall-local job lists neither",
+    )
+
+
+def point_the_tenancy_block_is_optional_in_the_schema_and_round_trips() -> Point:
+    schema = envelope_schema()
+    prop = schema["properties"].get("tenancy")
+    optional = (
+        prop is not None
+        and "tenancy" not in schema["required"]
+        and "null" in prop["type"]
+    )
+    closed = (
+        prop is not None
+        and prop.get("additionalProperties") is False
+        and prop["required"] == ["org_id", "tenancy_class"]
+    )
+    declared = clean_envelope(tenancy=clean_tenancy(
+        lambda_sharing=LambdaSharing("ch-33", co_tenants=(CoTenant("org-blue", "job-1"),),
+                                     must_not_share_with=("job-7",))))
+    restored = SpanEnvelope.from_dict(json.loads(json.dumps(declared.to_dict())))
+    bare = SpanEnvelope.from_dict(json.loads(json.dumps(clean_envelope().to_dict())))
+    try:
+        Tenancy.from_dict({"org_id": "org-blue", "tenancy_class": "shared", "quota": 4})
+        misspelt_refused = False
+    except ValueError:
+        misspelt_refused = True
+    return Point(
+        "the-tenancy-block-is-optional-in-the-schema-and-round-trips",
+        "sanity",
+        optional and closed and restored == declared and bare.tenancy is None and misspelt_refused,
+        "the schema lists tenancy as nullable and not required and closes it to unknown "
+        "keys; a declared block reconstructs identically from JSON, an envelope without "
+        "one reconstructs without one, and a misspelt key is refused rather than dropped",
     )
 
 
@@ -672,6 +958,10 @@ REGISTRY: Tuple[Callable[[], Point], ...] = (
     point_adding_a_rule_never_permits_more,
     point_a_hall_local_job_answers_to_no_circuit_rule,
     point_severity_ladder_dominates_by_construction,
+    point_each_tenant_predicate_is_one_edit_away,
+    point_refusal_is_monotone_in_slices_held,
+    point_adding_a_co_tenant_never_permits_more,
+    point_removing_the_tenancy_block_never_refuses_more,
     point_twenty_one_fields,
     point_six_decisions,
     point_three_fail_closed_conditions,
@@ -682,6 +972,8 @@ REGISTRY: Tuple[Callable[[], Point], ...] = (
     point_audit_chain_detects_an_edit,
     point_dark_probe_invents_nothing,
     point_regimes_partition_the_line,
+    point_an_absent_tenancy_block_is_listed_as_unchecked_not_refused,
+    point_the_tenancy_block_is_optional_in_the_schema_and_round_trips,
 )
 
 

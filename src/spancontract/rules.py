@@ -17,6 +17,15 @@ compile cache keyed on a topology that no longer exists. Each of the three
 describes a state in which the contract *does not know* something it needs, and
 in each case not knowing is a refusal. A validator that treated silence as
 health would be worse than no validator, because it would be trusted.
+
+Four more are the tenant predicates of section 6 W7, and they are handled the
+other way round when their input is missing: an envelope with no ``tenancy``
+block has them listed as *not checked*, by name, and is not refused. The
+difference is what the absence means. A dark controller is the plant failing
+to answer a question the contract must have answered; an absent tenancy block
+is a caller that has not wired an organization's own bookkeeping yet, and
+refusing every such caller would make the block mandatory in all but name.
+DECISIONS.md D13 records the choice.
 """
 
 from __future__ import annotations
@@ -79,6 +88,17 @@ class Policy:
     #: Minimum plant headroom before a hall may accept a spanned job.
     min_thermal_headroom_k: float = 0.0
     min_power_headroom_kw: float = 0.0
+    #: Whether an organization's declared slice quota is enforced at admission.
+    #: Off only where the slice packer already enforces it and a second refusal
+    #: would be noise; the declaration is still carried to the audit record.
+    enforce_org_slice_quota: bool = True
+    #: Whether two organizations may share one wavelength. The default is the
+    #: ban section 6 W7 states; a consortium that pools its optics flips it,
+    #: and the audit record shows that it did.
+    allow_lambda_sharing_across_orgs: bool = False
+    #: Tenancy classes whose jobs must have the wavelength to themselves,
+    #: co-tenants from their own organization included.
+    dedicated_tenancy_classes: Tuple[str, ...] = ("dedicated",)
 
 
 # --------------------------------------------------------------------------
@@ -341,6 +361,114 @@ def rule_checkpoint_contends_with_collective(
     return None
 
 
+# --------------------------------------------------------------------------
+# tenancy, section 6 W7: "this org may take N slices in hall A; this job may
+# not share a lambda with that job"
+# --------------------------------------------------------------------------
+#
+# Four rules, and three things they have in common. Each reads only what the
+# envelope's optional ``tenancy`` block declares, and returns nothing when the
+# block is absent --- the validator lists the check as not made, by name,
+# rather than failing it (DECISIONS.md D13). Each applies to a job that
+# crosses a hall, like every other rule here: a hall-local job's slice is
+# admitted by the slice packer under its own tenancy model, and a local job
+# uses no wavelength (D14). And each refuses with DENY rather than ESCALATE or
+# MOVE: a quota or a sharing ban is a policy with nothing left to weigh, and
+# the contract cannot see the hall a MOVE would point at (D15).
+
+
+def rule_org_slice_quota(env: SpanEnvelope, policy: Policy) -> Optional[Finding]:
+    """TN1. The organization's slice allowance in a hall is spent.
+
+    ``held`` counts the organization's slices in that hall without this job,
+    so the job's own slice is the one that has to fit. A quota of zero is a
+    ban, and the message reads as one.
+    """
+    if not env.spans_halls or not policy.enforce_org_slice_quota or env.tenancy is None:
+        return None
+    full = [q for q in env.tenancy.slices if not q.has_room]
+    if not full:
+        return None
+    where = " and ".join(
+        (f"may hold no slice in {q.hall_id!r}" if q.quota == 0
+         else f"holds {q.held} slice{'' if q.held == 1 else 's'} in {q.hall_id!r} "
+              f"against a quota of {q.quota}")
+        for q in full
+    )
+    more = ("this job's slice would be one more" if len(full) == 1
+            else "this job would take one more slice in each")
+    return Finding("TN1", Decision.DENY, f"organization {env.tenancy.org_id!r} {where}; {more}")
+
+
+def rule_lambda_shared_across_orgs(env: SpanEnvelope, policy: Policy) -> Optional[Finding]:
+    """TN2. No two organizations share a wavelength.
+
+    Isolation on a raw inter-chip mesh is geometry and optics, not packet
+    headers, so a wavelength carrying two organizations is two tenants on one
+    piece of glass with nothing between them.
+    """
+    if not env.spans_halls or env.tenancy is None or env.tenancy.lambda_sharing is None:
+        return None
+    if policy.allow_lambda_sharing_across_orgs:
+        return None
+    sharing = env.tenancy.lambda_sharing
+    others = [c for c in sharing.co_tenants if c.org_id != env.tenancy.org_id]
+    if not others:
+        return None
+    named = ", ".join(f"{c.org_id}/{c.job_id}" for c in others)
+    whose = ("an organization" if len({c.org_id for c in others}) == 1 else "organizations")
+    return Finding(
+        "TN2", Decision.DENY,
+        f"wavelength {sharing.lambda_id!r} already carries {named}, which "
+        f"{'belongs' if len(others) == 1 else 'belong'} to {whose} other than "
+        f"{env.tenancy.org_id!r}; no two organizations share a wavelength",
+    )
+
+
+def rule_dedicated_wavelength_is_shared(env: SpanEnvelope, policy: Policy) -> Optional[Finding]:
+    """TN3. A job in a dedicated tenancy class has the wavelength to itself.
+
+    Its own organization's other jobs count. A job that declared it needs the
+    wavelength alone --- a pretraining run whose collective must not be
+    contended --- does not get to share it by accident.
+    """
+    if not env.spans_halls or env.tenancy is None or env.tenancy.lambda_sharing is None:
+        return None
+    if env.tenancy.tenancy_class not in policy.dedicated_tenancy_classes:
+        return None
+    sharing = env.tenancy.lambda_sharing
+    if not sharing.co_tenants:
+        return None
+    named = ", ".join(f"{c.org_id}/{c.job_id}" for c in sharing.co_tenants)
+    return Finding(
+        "TN3", Decision.DENY,
+        f"{env.tenancy.org_id!r} is in tenancy class {env.tenancy.tenancy_class!r}, "
+        f"which the policy treats as dedicated, and {sharing.lambda_id!r} already "
+        f"carries {named}",
+    )
+
+
+def rule_lambda_pairwise_ban(env: SpanEnvelope, policy: Policy) -> Optional[Finding]:
+    """TN4. This job may not share a wavelength with that job.
+
+    The specification's sentence, as a list on the envelope. The ban is
+    pairwise and owner-blind: it holds against the job's own organization as
+    much as against a stranger's.
+    """
+    if not env.spans_halls or env.tenancy is None or env.tenancy.lambda_sharing is None:
+        return None
+    sharing = env.tenancy.lambda_sharing
+    banned = [c for c in sharing.co_tenants if c.job_id in sharing.must_not_share_with]
+    if not banned:
+        return None
+    named = ", ".join(c.job_id for c in banned)
+    return Finding(
+        "TN4", Decision.DENY,
+        f"this job may not share a wavelength with {named}, which "
+        f"{'is' if len(banned) == 1 else 'are'} on {sharing.lambda_id!r}",
+    )
+
+
 #: Every rule, in a fixed order for readability only. The validator's result
 #: does not depend on this order, and ``test_rule_order_is_irrelevant`` proves
 #: it by shuffling.
@@ -358,7 +486,15 @@ RULES: Tuple[Callable[[SpanEnvelope, Policy], Optional[Finding]], ...] = (
     rule_thermal_headroom,
     rule_power_headroom,
     rule_checkpoint_contends_with_collective,
+    rule_org_slice_quota,
+    rule_lambda_shared_across_orgs,
+    rule_dedicated_wavelength_is_shared,
+    rule_lambda_pairwise_ban,
 )
 
 #: The three conditions section 4.3 requires to fail closed. Asserted present.
 FAIL_CLOSED_RULE_IDS: Tuple[str, ...] = ("FC1", "FC2", "FC3")
+
+#: The tenant predicates of section 6 W7. None of them fails closed: an
+#: envelope that does not declare tenancy has them listed as not checked.
+TENANT_RULE_IDS: Tuple[str, ...] = ("TN1", "TN2", "TN3", "TN4")

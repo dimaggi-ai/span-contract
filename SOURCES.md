@@ -22,9 +22,12 @@ the point is worth exactly what a one-significant-figure anchor is worth.
 **S2. `DIMAGGI_Scale_Across_Comprehensive_v1.0`.**
 The specification this repository implements: section 4.1 (inputs), section 4.2
 (the six decisions), section 4.3 (the twenty-one envelope fields and the three
-fail-closed conditions), section 9 (the sequence of work). Not a public document.
-Where the implementation departs from it, `DECISIONS.md` says so and why —
-see D3, D4 and D7.
+fail-closed conditions), section 6 (the research program; W7 is the source of
+the tenant predicates — "this org may take N slices in hall A; this job may not
+share a λ with that job" — and of the line "isolation is geometry and optics"),
+section 9 (the sequence of work). Not a public document. Where the
+implementation departs from it, `DECISIONS.md` says so and why — see D3, D4, D7
+and D13–D16.
 
 **S3. `network-vs-more-gpus` — the latency-regime atlas.**
 https://github.com/dimaggi-ai/network-vs-more-gpus

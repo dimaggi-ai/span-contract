@@ -14,9 +14,10 @@ works inside one vendor's engine is that vendor's feature, not a contract.
 
 ### The envelope
 
-Twenty-one fields, plus three that make them checkable. Build it with
-`SpanEnvelope(...)`, or validate a JSON document against
-`schema/span_contract.schema.json` and load it with `SpanEnvelope.from_dict`.
+Twenty-one fields, plus three that make them checkable, plus an optional
+`tenancy` block. Build it with `SpanEnvelope(...)`, or validate a JSON document
+against `schema/span_contract.schema.json` and load it with
+`SpanEnvelope.from_dict`.
 
 The schema is generated from the code and a test fails if the two drift, so it is
 safe to generate client code from it.
@@ -52,12 +53,30 @@ With no plant, the rules still run; the two cross-checks cannot, and
 without a plant is weaker than one computed with it, and a UI that hides the
 difference turns "not checked" into "checked and fine".
 
+### A tenancy declaration, if you have one
+
+`Tenancy(org_id, tenancy_class, slices, lambda_sharing)`, optional on the
+envelope. The scheduler already holds the organization's slice count per hall
+and the circuit controller already knows what is on a wavelength; put them on
+the envelope and four rules read them (`docs/the-contract.md`, section 5).
+Nothing is fetched: the contract has no quota service and no second adapter
+surface, by decision (`DECISIONS.md` D16).
+
+With no block, the envelope is a 1.0 envelope. It reaches the same decision as before and
+`Verdict.not_checked` gains two lines, `TN1` and `TN2-TN4`. **Surface those
+too.** A tenancy-free verdict is weaker than a declared one in exactly the way a
+plant-free verdict is weaker than a checked one, and for the same reason it is
+not a refusal: an absent declaration is your bookkeeping not being wired yet,
+not the plant failing to answer (`DECISIONS.md` D13).
+
 ### A policy, if the defaults are wrong for you
 
-Every threshold is a field on `Policy`. None is inline. The defaults are
-conservative starting points with no published anchor — `ASSUMPTIONS.md` A1 — and
-you should expect to change them. The policy is recorded in the audit record, so
-a verdict can always be traced to the numbers that produced it.
+Every threshold is a field on `Policy`, and so are the three tenancy switches;
+the pairwise ban has none, because it is the job's own declaration. None is
+inline. The defaults are conservative starting points with no published anchor —
+`ASSUMPTIONS.md` A1 — and you should expect to change them. The policy is
+recorded in the audit record, so a verdict can always be traced to the numbers
+that produced it.
 
 ## 2. What a caller gets back
 
@@ -116,5 +135,8 @@ reimplemented in someone else's engine, and they are the contribution.
   sees the graph you declared, not the ducts. Two circuits in one trench are one
   failure — `ASSUMPTIONS.md` A3, and the most likely way a green verdict here is
   wrong about a real plant.
-- **Whether the thresholds suit your plant.** They are starting points. Nine
+- **Whether a declared quota or wavelength occupancy is true.** They are the
+  caller's claims, carried to the audit record so a wrong one is findable
+  afterwards, not caught at admission — `ASSUMPTIONS.md` A12 and A13.
+- **Whether the thresholds suit your plant.** They are starting points. Eleven
   entries in the registry's DECLINED list say so.

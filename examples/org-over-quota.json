@@ -1,0 +1,62 @@
+{
+  "scale_out": "campus_fiber",
+  "span_mode": "span",
+  "span_rtt_us": 42.0,
+  "span_bw_gbps": 800.0,
+  "span_failure_domain": "campus-duct-east",
+  "slice_rect": {
+    "hall_id": "hall-a",
+    "origin": [
+      0,
+      0,
+      0
+    ],
+    "extent": [
+      8,
+      8,
+      8
+    ]
+  },
+  "stitch_id": "stitch-ab",
+  "stitch_api": "https://ocs.plant.example/v1",
+  "topology_hash": "b7c2000000000000000000000000000000000000000000000000000000000000",
+  "measured_il_db": 6.0,
+  "measured_ber": 1e-12,
+  "checkpoint_window_s": 120.0,
+  "collective_window_s": 300.0,
+  "ingest_budget_GBps": 40.0,
+  "thermal_headroom_k": 3.0,
+  "ride_through_s": 180.0,
+  "power_headroom_kw": 250.0,
+  "compile_cache_key": "aeb84a2c41d76cea9b6e500f38a2624cf780de86343ebe7ada6b8c791b03206d",
+  "blast_radius": 1,
+  "autonomy_level": "L1",
+  "requested_action": "train",
+  "measured_age_s": 30.0,
+  "stitch_api_reachable": true,
+  "labels": {
+    "graph_hash": "a3f1000000000000000000000000000000000000000000000000000000000000",
+    "cut": "pp"
+  },
+  "tenancy": {
+    "org_id": "org-blue",
+    "tenancy_class": "shared",
+    "slices": [
+      {
+        "hall_id": "hall-a",
+        "held": 4,
+        "quota": 4
+      },
+      {
+        "hall_id": "hall-b",
+        "held": 1,
+        "quota": 4
+      }
+    ],
+    "lambda_sharing": {
+      "lambda_id": "ch-33",
+      "co_tenants": [],
+      "must_not_share_with": []
+    }
+  }
+}

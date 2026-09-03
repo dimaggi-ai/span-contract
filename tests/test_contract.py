@@ -15,15 +15,21 @@ from spancontract import (  # noqa: E402
     AUTONOMY_LEVELS,
     SPAN_MODES,
     SPEC_FIELDS,
+    TENANCY_CLASSES,
+    TENANT_RULE_IDS,
     CompileCache,
+    CoTenant,
     Decision,
+    LambdaSharing,
     Plant,
     Policy,
     ScaleOut,
+    SliceQuota,
     SliceRect,
     SpanEnvelope,
     SpanGraph,
     Stitch,
+    Tenancy,
     audit_record,
     blast_radius,
     compile_cache_key,
@@ -302,10 +308,280 @@ def test_a_retuned_plant_invalidates_the_envelope():
 
 def test_unchecked_things_are_printed_not_omitted():
     verdict = validate(clean())
-    assert len(verdict.not_checked) == 2
+    assert len(verdict.not_checked) == 4
     assert any("blast radius" in n for n in verdict.not_checked)
     assert any("topology" in n for n in verdict.not_checked)
+    assert any(n.startswith("TN1 ") and "slice" in n for n in verdict.not_checked)
+    assert any(n.startswith("TN2-TN4 ") and "wavelength" in n for n in verdict.not_checked)
     assert validate(clean(span_mode="local")).not_checked == ()
+
+
+# --- tenancy --------------------------------------------------------------
+
+
+def tenancy(**kw):
+    """A block every tenant predicate clears, so each refusal is one edit away."""
+    base = dict(
+        org_id="org-blue",
+        tenancy_class="shared",
+        slices=(SliceQuota("hall-a", held=2, quota=4), SliceQuota("hall-b", held=1, quota=4)),
+        lambda_sharing=LambdaSharing("ch-33", co_tenants=(CoTenant("org-blue", "job-1"),)),
+    )
+    base.update(kw)
+    return Tenancy(**base)
+
+
+def test_a_declared_tenancy_that_fits_changes_nothing():
+    verdict = validate(clean(tenancy=tenancy()))
+    assert verdict.decision is Decision.SPAN
+    assert verdict.findings == ()
+    assert not any(n.startswith("TN") for n in verdict.not_checked)
+
+
+@pytest.mark.parametrize(
+    "kw, rule_id",
+    [
+        ({"slices": (SliceQuota("hall-a", held=4, quota=4),)}, "TN1"),
+        ({"slices": (SliceQuota("hall-a", held=0, quota=0),)}, "TN1"),
+        ({"slices": (SliceQuota("hall-a", held=2, quota=4),
+                     SliceQuota("hall-b", held=4, quota=4))}, "TN1"),
+        ({"lambda_sharing": LambdaSharing(
+            "ch-33", co_tenants=(CoTenant("org-red", "job-7"),))}, "TN2"),
+        ({"tenancy_class": "dedicated"}, "TN3"),
+        ({"lambda_sharing": LambdaSharing(
+            "ch-33", co_tenants=(CoTenant("org-blue", "job-1"),),
+            must_not_share_with=("job-1",))}, "TN4"),
+    ],
+)
+def test_each_tenant_predicate_refuses_alone_and_none_fails_closed(kw, rule_id):
+    verdict = validate(clean(tenancy=tenancy(**kw)))
+    assert verdict.decision is Decision.DENY
+    assert {f.rule_id for f in verdict.findings} == {rule_id}
+    assert rule_id in TENANT_RULE_IDS
+    assert verdict.fail_closed_findings == ()
+
+
+def test_a_quota_of_zero_reads_as_a_ban():
+    verdict = validate(clean(tenancy=tenancy(slices=(SliceQuota("hall-a", held=0, quota=0),))))
+    assert verdict.decision is Decision.DENY
+    assert "may hold no slice in 'hall-a'" in verdict.findings[0].message
+
+
+def test_sharing_within_one_organization_is_not_sharing_across_two():
+    own = LambdaSharing("ch-33", co_tenants=(CoTenant("org-blue", "job-1"),
+                                             CoTenant("org-blue", "job-9")))
+    assert validate(clean(tenancy=tenancy(lambda_sharing=own))).decision is Decision.SPAN
+    # The pairwise ban is owner-blind: it holds against the job's own organization.
+    banned = LambdaSharing("ch-33", co_tenants=own.co_tenants, must_not_share_with=("job-9",))
+    verdict = validate(clean(tenancy=tenancy(lambda_sharing=banned)))
+    assert {f.rule_id for f in verdict.findings} == {"TN4"}
+
+
+def test_two_predicates_on_one_wavelength_both_report():
+    stranger_on_a_dedicated_line = LambdaSharing(
+        "ch-33", co_tenants=(CoTenant("org-red", "job-7"),), must_not_share_with=("job-7",))
+    verdict = validate(clean(tenancy=tenancy(
+        tenancy_class="dedicated", lambda_sharing=stranger_on_a_dedicated_line)))
+    assert verdict.decision is Decision.DENY
+    assert {f.rule_id for f in verdict.findings} == {"TN2", "TN3", "TN4"}
+
+
+def test_a_local_job_is_untouched_by_a_spent_quota_and_a_crowded_wavelength():
+    crowded = LambdaSharing("ch-33", co_tenants=(CoTenant("org-red", "job-7"),),
+                            must_not_share_with=("job-7",))
+    env = clean(span_mode="local", tenancy=tenancy(
+        tenancy_class="dedicated",
+        slices=(SliceQuota("hall-a", held=9, quota=0),), lambda_sharing=crowded))
+    verdict = validate(env)
+    assert verdict.decision is Decision.LOCAL
+    assert verdict.findings == ()
+    assert verdict.not_checked == ()
+
+
+def test_an_absent_tenancy_block_is_a_gap_not_a_refusal():
+    verdict = validate(clean())
+    assert verdict.decision is Decision.SPAN
+    assert not any(f.rule_id in TENANT_RULE_IDS for f in verdict.findings)
+    gaps = [n for n in verdict.not_checked if n.startswith("TN")]
+    assert [g.split()[0] for g in gaps] == ["TN1", "TN2-TN4"]
+    assert all("taken on trust" in g for g in gaps)
+
+
+def test_a_partial_declaration_lists_only_what_it_left_out():
+    no_quota = validate(clean(tenancy=tenancy(slices=())))
+    assert no_quota.decision is Decision.SPAN
+    gaps = [n for n in no_quota.not_checked if n.startswith("TN")]
+    assert len(gaps) == 1 and gaps[0].startswith("TN1 ") and "org-blue" in gaps[0]
+    no_wavelength = validate(clean(tenancy=tenancy(lambda_sharing=None)))
+    gaps = [n for n in no_wavelength.not_checked if n.startswith("TN")]
+    assert len(gaps) == 1 and gaps[0].startswith("TN2-TN4 ")
+    # A crossing job occupies a hall beyond its own, so a block that declares
+    # only the home hall is known to be incomplete even with no plant to name
+    # the far hall; the far hall's count is listed as taken on trust.
+    home_only = validate(clean(tenancy=tenancy(slices=(SliceQuota("hall-a", held=2, quota=4),))))
+    assert home_only.decision is Decision.SPAN
+    gaps = [n for n in home_only.not_checked if n.startswith("TN")]
+    assert len(gaps) == 1 and gaps[0].startswith("TN1 ") and "beyond 'hall-a'" in gaps[0]
+    complete = validate(clean(tenancy=tenancy()))
+    assert not any(n.startswith("TN") for n in complete.not_checked)
+
+
+def test_a_hall_the_plant_says_the_job_occupies_must_be_declared():
+    plant = Plant(
+        graph=SpanGraph(frozenset({"hall-a", "hall-b"}),
+                        (Stitch("stitch-ab", frozenset({"hall-a", "hall-b"})),)),
+        job_halls=("hall-a", "hall-b"), anchor="hall-a", current_topology_hash=TOPOLOGY_HASH,
+    )
+    home_only = tenancy(slices=(SliceQuota("hall-a", held=2, quota=4),))
+    verdict = validate(clean(tenancy=home_only), plant=plant)
+    assert any(n.startswith("TN1 ") and "hall-b" in n for n in verdict.not_checked)
+    both = validate(clean(tenancy=tenancy()), plant=plant)
+    assert not any(n.startswith("TN") for n in both.not_checked)
+
+
+def test_the_home_hall_must_be_among_the_declared_halls():
+    with pytest.raises(ValueError):
+        clean(tenancy=tenancy(slices=(SliceQuota("hall-b", held=1, quota=4),)))
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: SliceQuota("", 0, 1),
+        lambda: SliceQuota("hall-a", -1, 1),
+        lambda: SliceQuota("hall-a", 0, -1),
+        lambda: CoTenant("", "job-1"),
+        lambda: CoTenant("org-blue", ""),
+        lambda: LambdaSharing(""),
+        lambda: LambdaSharing("ch-33", (CoTenant("org-blue", "job-1"), CoTenant("org-red", "job-1"))),
+        lambda: LambdaSharing("ch-33", (), ("",)),
+        lambda: Tenancy("", "shared"),
+        lambda: Tenancy("org-blue", "exclusive"),
+        lambda: Tenancy("org-blue", "shared", (SliceQuota("hall-a", 0, 1), SliceQuota("hall-a", 0, 1))),
+    ],
+)
+def test_the_tenancy_block_rejects_impossible_shapes(build):
+    with pytest.raises(ValueError):
+        build()
+
+
+def test_an_unknown_or_missing_tenancy_key_is_refused_by_name():
+    with pytest.raises(ValueError, match="quotas"):
+        Tenancy.from_dict({"org_id": "org-blue", "tenancy_class": "shared", "quotas": []})
+    with pytest.raises(ValueError, match="unit"):
+        SliceQuota.from_dict({"hall_id": "hall-a", "held": 1, "quota": 2, "unit": "slice"})
+    with pytest.raises(ValueError, match="tenancy_class"):
+        SpanEnvelope.from_dict({**clean().to_dict(), "tenancy": {"org_id": "org-blue"}})
+    with pytest.raises(ValueError, match="lambda_id"):
+        LambdaSharing.from_dict({"co_tenants": []})
+
+
+@pytest.mark.parametrize(
+    "edit, names",
+    [
+        (lambda t: t["slices"][0].update(held=None), "held"),
+        (lambda t: t["slices"][0].update(held="4"), "held"),
+        (lambda t: t["slices"][0].update(quota=3.9), "quota"),
+        (lambda t: t["slices"][0].update(quota=True), "quota"),
+        (lambda t: t["slices"][0].update(hall_id=7), "hall_id"),
+        (lambda t: t.update(slices=None), "slices"),
+        (lambda t: t.update(slices={"hall_id": "hall-a"}), "slices"),
+        (lambda t: t.update(org_id=None), "org_id"),
+        (lambda t: t.update(tenancy_class=1), "tenancy_class"),
+        (lambda t: t.update(lambda_sharing=5), "lambda_sharing"),
+        (lambda t: t["lambda_sharing"].update(co_tenants=None), "co_tenants"),
+        (lambda t: t["lambda_sharing"]["co_tenants"].append("org-red/job-7"), "co_tenants"),
+        (lambda t: t["lambda_sharing"].update(must_not_share_with="job-9"), "must_not_share_with"),
+        (lambda t: t["lambda_sharing"].update(must_not_share_with=[None]), "must_not_share_with"),
+        (lambda t: t["lambda_sharing"].update(must_not_share_with=["job-9", "job-9"]), "twice"),
+    ],
+)
+def test_a_tenancy_field_of_the_wrong_type_is_refused_by_name_not_coerced(edit, names):
+    """The schema is closed, so the block must not be the one place a document
+    the schema rejects still validates: ``"4"`` is not 4, ``null`` is not 0, and
+    a string is not a list of its characters."""
+    doc = tenancy().to_dict()
+    edit(doc)
+    with pytest.raises(ValueError, match=names):
+        Tenancy.from_dict(doc)
+
+
+@pytest.mark.parametrize("block", [5, "org-blue", [], True])
+def test_a_tenancy_block_that_is_not_an_object_is_refused_by_name(block):
+    with pytest.raises(ValueError, match="tenancy must be an object"):
+        SpanEnvelope.from_dict({**clean().to_dict(), "tenancy": block})
+
+
+def test_a_tenancy_block_round_trips_through_json_and_the_audit_record():
+    banned = LambdaSharing("ch-33", (CoTenant("org-blue", "job-1"),), ("job-7",))
+    env = clean(tenancy=tenancy(lambda_sharing=banned))
+    assert SpanEnvelope.from_dict(json.loads(json.dumps(env.to_dict()))) == env
+    record = audit_record(env, validate(env))
+    assert record["envelope"]["tenancy"]["lambda_sharing"]["must_not_share_with"] == ["job-7"]
+    assert record["envelope"]["tenancy"]["slices"][0] == {"hall_id": "hall-a", "held": 2, "quota": 4}
+
+
+def test_the_policy_can_relax_each_tenant_predicate_and_the_record_shows_it():
+    over = clean(tenancy=tenancy(slices=(SliceQuota("hall-a", held=4, quota=4),)))
+    assert validate(over).decision is Decision.DENY
+    relaxed = Policy(enforce_org_slice_quota=False)
+    assert validate(over, relaxed).decision is Decision.SPAN
+    assert audit_record(over, validate(over, relaxed), relaxed)["policy"]["enforce_org_slice_quota"] is False
+
+    pooled = clean(tenancy=tenancy(lambda_sharing=LambdaSharing(
+        "ch-33", co_tenants=(CoTenant("org-red", "job-7"),))))
+    assert validate(pooled).decision is Decision.DENY
+    assert validate(pooled, Policy(allow_lambda_sharing_across_orgs=True)).decision is Decision.SPAN
+
+    alone = clean(tenancy=tenancy(tenancy_class="dedicated"))
+    assert validate(alone).decision is Decision.DENY
+    assert validate(alone, Policy(dedicated_tenancy_classes=())).decision is Decision.SPAN
+    # Nothing relaxes the pairwise ban: it is the job's own declaration.
+    banned = clean(tenancy=tenancy(lambda_sharing=LambdaSharing(
+        "ch-33", (CoTenant("org-blue", "job-1"),), ("job-1",))))
+    assert validate(banned, Policy(
+        enforce_org_slice_quota=False, allow_lambda_sharing_across_orgs=True,
+        dedicated_tenancy_classes=())).decision is Decision.DENY
+
+
+def test_the_schema_leaves_tenancy_optional_and_closed():
+    schema = envelope_schema()
+    assert "tenancy" not in schema["required"]
+    block = schema["properties"]["tenancy"]
+    assert block["type"] == ["object", "null"]
+    assert block["additionalProperties"] is False
+    assert set(block["properties"]["tenancy_class"]["enum"]) == set(TENANCY_CLASSES)
+    assert block["properties"]["slices"]["items"]["properties"]["quota"]["minimum"] == 0
+    assert block["properties"]["slices"]["uniqueItems"] is True
+    sharing = block["properties"]["lambda_sharing"]["properties"]
+    assert sharing["co_tenants"]["uniqueItems"] is True
+    assert sharing["must_not_share_with"]["uniqueItems"] is True
+
+
+def test_the_cli_example_declares_a_tenancy_that_clears(capsys):
+    assert main(["example"]) == 0
+    env = SpanEnvelope.from_dict(json.loads(capsys.readouterr().out))
+    assert env.tenancy is not None
+    verdict = validate(env)
+    assert not any(f.rule_id in TENANT_RULE_IDS for f in verdict.findings)
+    assert not any(n.startswith("TN") for n in verdict.not_checked)
+
+
+def test_the_cli_prints_the_tenancy_and_its_gaps(tmp_path, capsys):
+    declared = tmp_path / "declared.json"
+    declared.write_text(json.dumps(
+        clean(tenancy=tenancy(slices=(SliceQuota("hall-a", held=4, quota=4),))).to_dict()))
+    assert main(["validate", str(declared)]) == 1
+    out = capsys.readouterr().out
+    assert "tenancy:  org-blue (shared)" in out
+    assert "TN1" in out
+
+    bare = tmp_path / "bare.json"
+    bare.write_text(json.dumps(clean().to_dict()))
+    assert main(["validate", str(bare)]) == 0
+    out = capsys.readouterr().out
+    assert "tenancy:  not declared" in out
+    assert "? TN1 " in out and "? TN2-TN4 " in out
 
 
 # --- compile cache --------------------------------------------------------
@@ -483,3 +759,22 @@ def test_the_cli_reads_a_plant_file(tmp_path, capsys):
     record = json.loads(capsys.readouterr().out)
     assert record["decision"] == "deny"
     assert verify_chain([record])
+
+
+def test_the_cli_exits_two_not_one_for_an_envelope_it_cannot_read(tmp_path, capsys):
+    """Exit 1 is a refusal and exit 2 is an unreadable envelope; a script keys on
+    the difference, so a broken tenancy block or a missing field must never come
+    out as 1 with a traceback."""
+    doc = clean().to_dict()
+    doc["tenancy"] = tenancy().to_dict()
+    doc["tenancy"]["slices"][0]["held"] = None
+    broken = tmp_path / "broken.json"
+    broken.write_text(json.dumps(doc))
+    assert main(["validate", str(broken)]) == 2
+    assert "held" in capsys.readouterr().err
+    doc = clean().to_dict()
+    del doc["span_rtt_us"]
+    missing = tmp_path / "missing.json"
+    missing.write_text(json.dumps(doc))
+    assert main(["validate", str(missing)]) == 2
+    assert "span_rtt_us" in capsys.readouterr().err

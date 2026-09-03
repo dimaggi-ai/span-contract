@@ -8,8 +8,9 @@ one was wrong at step time.
 
 This package is the object that makes them agree before the job starts: a
 twenty-one field envelope, six decisions, three conditions that fail closed,
-and a reference validator that turns the first into the second and prints the
-reasons. It decides admission. It does not decide capacity --- what a job
+four tenant predicates that are taken on trust when the envelope does not
+declare tenancy, and a reference validator that turns the first into the
+second and prints the reasons. It decides admission. It does not decide capacity --- what a job
 retains across a given cut is answered by the latency-regime atlas in the
 ``network-vs-more-gpus`` repository, and this package deliberately holds no
 second opinion on it.
@@ -26,21 +27,28 @@ from .envelope import (
     AUTONOMY_LEVELS,
     REGIME_BOUNDS,
     SPEC_FIELDS,
+    TENANCY_CLASSES,
+    CoTenant,
+    LambdaSharing,
+    SliceQuota,
     SliceRect,
     SpanEnvelope,
+    Tenancy,
     latency_regime,
 )
-from .rules import FAIL_CLOSED_RULE_IDS, RULES, Finding, Policy
-from .validator import Plant, Verdict, audit_record, validate, verify_chain
+from .rules import FAIL_CLOSED_RULE_IDS, RULES, TENANT_RULE_IDS, Finding, Policy
+from .validator import Plant, Verdict, audit_record, tenancy_gaps, validate, verify_chain
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 __all__ = [
     "AUTONOMY_LEVELS",
+    "CoTenant",
     "CompileCache",
     "Decision",
     "FAIL_CLOSED_RULE_IDS",
     "Finding",
+    "LambdaSharing",
     "Plant",
     "Policy",
     "REGIME_BOUNDS",
@@ -48,16 +56,21 @@ __all__ = [
     "SPAN_MODES",
     "SPEC_FIELDS",
     "ScaleOut",
+    "SliceQuota",
     "SliceRect",
     "SpanEnvelope",
     "SpanGraph",
     "Stitch",
+    "TENANCY_CLASSES",
+    "TENANT_RULE_IDS",
+    "Tenancy",
     "Verdict",
     "audit_record",
     "blast_radius",
     "compile_cache_key",
     "latency_regime",
     "load_bearing_stitches",
+    "tenancy_gaps",
     "validate",
     "verify_chain",
     "__version__",

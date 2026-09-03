@@ -193,6 +193,111 @@
     "labels": {
       "type": "object",
       "description": "Free-form, carried to the audit record untouched."
+    },
+    "tenancy": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Optional. Who the job belongs to, the isolation it asks for, and the quota and wavelength state it declares (section 6 W7). null means the tenant predicates TN1-TN4 are listed as not checked; it is not a failure.",
+      "required": [
+        "org_id",
+        "tenancy_class"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "org_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tenancy_class": {
+          "type": "string",
+          "enum": [
+            "dedicated",
+            "shared"
+          ],
+          "description": "dedicated: the wavelength carries this job alone. shared: co-tenants from the job's own organization are accepted."
+        },
+        "slices": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": [
+              "hall_id",
+              "held",
+              "quota"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "hall_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "held": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Slices the organization already holds in this hall, not counting this job."
+              },
+              "quota": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Slices the organization may hold in this hall. Zero is a ban."
+              }
+            }
+          },
+          "description": "One entry per hall the job takes a slice in. Must include the hall the slice_rect sits in."
+        },
+        "lambda_sharing": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "What is on the wavelength this job's stitch would use, as declared. null means the wavelength checks are listed as not checked.",
+          "required": [
+            "lambda_id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "lambda_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "co_tenants": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "required": [
+                  "org_id",
+                  "job_id"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "org_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "job_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "description": "Jobs already carried on the wavelength, and whose they are."
+            },
+            "must_not_share_with": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Job ids this job may never share a wavelength with."
+            }
+          }
+        }
+      }
     }
   }
 }

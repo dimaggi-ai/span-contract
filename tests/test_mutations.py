@@ -7,8 +7,9 @@ a test that crashes.
 
 The rules the mutations must follow, and the reason for each:
 
-* Every mutation deletes machinery. None edits a threshold. Moving a number
-  until a check fails proves only that the check reads the number.
+* Every mutation deletes machinery, or --- for two recorded decisions ---
+  inserts the reversal of the decision. None edits a threshold. Moving a
+  number until a check fails proves only that the check reads the number.
 * Each mutation declares the exact set of points it must turn red. A superset
   is a failure too: it means the mutation was blunter than described, and a
   blunt mutation makes every point look load-bearing.
@@ -72,7 +73,7 @@ def test_unmutated_control() -> None:
     """The green control. Without it the mutations below prove nothing."""
     points = reg.run_registry()
     assert red(points) == set(), "the registry must be green before anything is deleted"
-    assert len(points) == 19
+    assert len(points) == 25
 
 
 def test_delete_fail_closed_dark(monkeypatch) -> None:
@@ -165,6 +166,13 @@ def test_flatten_the_severity_ladder(monkeypatch) -> None:
         "every-fail-closed-condition-is-one-edit-away",
         "the-three-specified-conditions-fail-closed",
         "a-dark-probe-changes-no-measured-value",
+        # The tenant predicates sit on the same ladder, so flattening it takes
+        # every ordering they rely on with it.
+        "each-tenant-predicate-is-one-edit-away",
+        "refusal-is-monotone-in-slices-held",
+        "adding-a-co-tenant-never-permits-more",
+        "removing-the-tenancy-block-never-refuses-more",
+        "an-absent-tenancy-block-is-listed-as-unchecked-not-refused",
     }
 
 
@@ -187,6 +195,82 @@ def test_reconcile_the_span_mode_discrepancy(monkeypatch) -> None:
     assert red(reg.run_registry()) == {"span-mode-omits-escalate-as-the-specification-does"}
 
 
+def test_delete_the_slice_quota_rule(monkeypatch) -> None:
+    """An organization past its quota stops being refused.
+
+    Bites on the monotone-in-held sweep for the same reason the distance
+    deletion bites: a flat sweep is monotone, and the point requires movement.
+    """
+    delete_rule(monkeypatch, "rule_org_slice_quota")
+    assert red(reg.run_registry()) == {
+        "each-tenant-predicate-is-one-edit-away",
+        "refusal-is-monotone-in-slices-held",
+    }
+
+
+def test_delete_the_cross_organization_sharing_rule(monkeypatch) -> None:
+    """Two organizations on one wavelength stops being a refusal."""
+    delete_rule(monkeypatch, "rule_lambda_shared_across_orgs")
+    assert red(reg.run_registry()) == {"each-tenant-predicate-is-one-edit-away"}
+
+
+def test_delete_the_dedicated_wavelength_rule(monkeypatch) -> None:
+    """A dedicated job sharing its wavelength stops being a refusal."""
+    delete_rule(monkeypatch, "rule_dedicated_wavelength_is_shared")
+    assert red(reg.run_registry()) == {"each-tenant-predicate-is-one-edit-away"}
+
+
+def test_delete_the_pairwise_ban(monkeypatch) -> None:
+    """'This job may not share a wavelength with that job' stops being enforced."""
+    delete_rule(monkeypatch, "rule_lambda_pairwise_ban")
+    assert red(reg.run_registry()) == {"each-tenant-predicate-is-one-edit-away"}
+
+
+def test_silence_the_tenancy_gaps(monkeypatch) -> None:
+    """An envelope with no tenancy block is admitted without saying what was skipped.
+
+    The verdicts are identical; only the not_checked lines are gone. That a
+    point catches this is the whole reason the gaps are printed rather than
+    implied.
+    """
+    patch_everywhere(monkeypatch, "tenancy_gaps", lambda env, plant: [])
+    assert red(reg.run_registry()) == {
+        "an-absent-tenancy-block-is-listed-as-unchecked-not-refused",
+    }
+
+
+def test_an_absent_tenancy_block_starts_failing_closed(monkeypatch) -> None:
+    """DECISIONS.md D13 is quietly reversed: no tenancy block becomes a refusal.
+
+    This one adds a rule rather than deleting one. Like the span-mode
+    reconcile test above it is the inversion of a recorded decision, included
+    because D13 is the decision most likely to be "tidied up" by someone who
+    thinks silence should refuse. Six points go red, for three reasons: the
+    two points about absent blocks see them refused; the reference envelope
+    declares no tenancy, so it is refused before the distance sweep, the
+    emulated flip, and the fail-closed one-edit-away point can move it; and
+    the three-conditions point finds a fourth fail-closed rule (measured: with
+    the injected rule not marked fail-closed, that point stays green and the
+    set is five).
+    """
+
+    def rule_absent_tenancy_fails_closed(env, policy):
+        if env.spans_halls and env.tenancy is None:
+            return rules_mod.Finding("TN0", dec_mod.Decision.DENY, "no tenancy block",
+                                     fail_closed=True)
+        return None
+
+    patch_everywhere(monkeypatch, "RULES", rules_mod.RULES + (rule_absent_tenancy_fails_closed,))
+    assert red(reg.run_registry()) == {
+        "an-absent-tenancy-block-is-listed-as-unchecked-not-refused",
+        "removing-the-tenancy-block-never-refuses-more",
+        "every-fail-closed-condition-is-one-edit-away",
+        "the-three-specified-conditions-fail-closed",
+        "refusal-is-monotone-in-distance",
+        "the-emulated-stitch-flips-the-verdict-across-a-regime",
+    }
+
+
 def test_every_mutation_is_a_deletion() -> None:
     """No mutation in this file may work by moving a threshold.
 
@@ -200,3 +284,8 @@ def test_every_mutation_is_a_deletion() -> None:
             f"a mutation appears to move the policy threshold {field!r}; mutations "
             "must delete machinery, not retune it"
         )
+    # The two ways round the field scan: rebinding a default on the class, or
+    # building a Policy from a dict. Spelled in halves so this test's own text
+    # does not trip it.
+    for dodge in ("setattr(" + "reg.Policy", "setattr(" + "rules_mod.Policy", "Policy(" + "**"):
+        assert dodge not in source, f"a mutation appears to retune the policy via {dodge!r}"

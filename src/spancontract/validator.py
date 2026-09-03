@@ -104,6 +104,62 @@ def check_topology_current(
 PLANT_RULES = (check_declared_blast_radius, check_topology_current)
 
 
+def tenancy_gaps(env: SpanEnvelope, plant: Plant) -> List[str]:
+    """What the tenant predicates could not check, by name.
+
+    The taken-on-trust pattern of XP1 and XP2, applied to a block that is
+    optional by design. A missing block, a block with no quota state, a block
+    with no wavelength declaration, a hall the plant says the job occupies but
+    the block does not cover, and a block that declares only the home hall of
+    a crossing job when no plant model names the far hall, each produce a line
+    here. None of them produces a finding; DECISIONS.md D13 says why.
+    """
+    if not env.spans_halls:
+        return []
+    tenancy = env.tenancy
+    home = env.slice_rect.hall_id
+    if tenancy is None:
+        return [
+            "TN1 organization slice quota: no tenancy block on the envelope, so the "
+            f"organization's slice count in {home!r} was taken on trust",
+            "TN2-TN4 wavelength sharing: no tenancy block on the envelope, so whatever "
+            "else is on the stitch's wavelength was taken on trust",
+        ]
+    gaps: List[str] = []
+    if not tenancy.slices:
+        gaps.append(
+            f"TN1 organization slice quota: tenancy block for {tenancy.org_id!r} declares "
+            f"no quota state, so its slice count in {home!r} was taken on trust"
+        )
+    else:
+        undeclared = [h for h in plant.job_halls if h not in tenancy.declared_halls]
+        if undeclared:
+            halls = ", ".join(repr(h) for h in undeclared)
+            these = "this hall" if len(undeclared) == 1 else "these halls"
+            gaps.append(
+                f"TN1 organization slice quota in {halls}: the plant says the job "
+                f"occupies {these} and the tenancy block declares no quota state "
+                "there, so the organization's slice count there was taken on trust"
+            )
+        elif not plant.job_halls and set(tenancy.declared_halls) <= {home}:
+            # A crossing job occupies at least one hall beyond its own, so a
+            # home-only declaration is known to be incomplete even with no
+            # plant to say which hall is missing.
+            gaps.append(
+                f"TN1 organization slice quota beyond {home!r}: the job crosses a hall, "
+                "the tenancy block declares a slice only in its home hall, and no plant "
+                "model names the far hall, so the organization's slice count there was "
+                "taken on trust"
+            )
+    if tenancy.lambda_sharing is None:
+        gaps.append(
+            f"TN2-TN4 wavelength sharing: tenancy block for {tenancy.org_id!r} declares "
+            "no wavelength, so whatever else is on the stitch's wavelength was taken "
+            "on trust"
+        )
+    return gaps
+
+
 @dataclass(frozen=True)
 class Verdict:
     """What the validator decided, and everything needed to argue with it."""
@@ -162,6 +218,7 @@ def validate(
                 "XP2 topology currency: no live topology hash supplied, so the envelope's "
                 "topology_hash was taken on trust"
             )
+    not_checked += tenancy_gaps(env, plant)
 
     # A job that never leaves its hall is LOCAL. One that clears every rule and
     # asked to cross gets SPAN. Anything a rule objected to takes the most

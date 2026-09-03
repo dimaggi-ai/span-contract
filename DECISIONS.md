@@ -189,7 +189,8 @@ are operator choices. Every attempt to find an anchor for them produced either a
 circular check — confirming the code reproduces its own constant — or a number
 borrowed from an unrelated context and dressed up.
 
-So the DECLINED list is nine entries long and is printed on every run, above the
+So the DECLINED list was nine entries long at 1.0.0 (eleven at 1.1.0, D16) and
+is printed on every run, above the
 pass count. A registry that manufactured six calibrated points here would look
 more rigorous and be less true.
 
@@ -218,3 +219,104 @@ record by rewriting its verdict from `deny` to `span`, which is only an edit whe
 the verdict was not already `span`. Deleting an unrelated rule made it a no-op and
 the point passed while detecting nothing. It now edits a recorded measurement,
 which always differs.
+
+---
+
+## D13. An absent tenancy block is taken on trust, not failed closed
+**Date:** 2026-09-02.
+
+Section 6 of the specification, under W7, asks for two refusals the 1.0 rules
+could not make: *this org may take N slices in hall A*, and *this job may not
+share a λ with that job*. They are implemented as an optional `tenancy` block on
+the envelope and four rules, TN1–TN4. The question was what an envelope with no
+block gets. Three options:
+
+1. Fail closed: no tenancy, no admission — the FC1–FC3 pattern.
+2. Make the block mandatory in the schema — a 2.0 change; every 1.0 caller breaks.
+3. Admit, and list the tenancy checks in `not_checked` by name — the XP1/XP2
+   pattern for a missing plant.
+
+Option 3 was chosen. Fail-closed is reserved for the three ignorance conditions
+the specification names, and each of those is the *plant* failing to answer a
+question the contract must have answered. An absent tenancy block is a different
+absence: a caller that has not wired its organization's bookkeeping yet.
+Refusing it would be option 2 by the back door, and would turn every 1.0
+envelope into a refusal in a minor release.
+
+Consequence: a verdict on a tenancy-free envelope is weaker than one on a
+declared envelope, and says so in two lines (`TN1`, `TN2-TN4`). A partial block
+is handled the same way, granularly — no quota state, a `TN1` line; no
+wavelength, a `TN2-TN4` line; a hall the plant says the job occupies that the
+block does not cover, a `TN1` line naming it; a block that declares only the
+home hall of a crossing job when no plant names the far hall, a `TN1` line
+saying the far hall's count was taken on trust (a crossing job occupies a hall
+beyond its own by definition, so that incompleteness is known without a plant).
+A registry point checks the pattern across 400 random envelopes with the block
+removed, and two mutation tests bite: one silences the gap lines, and one
+inverts this decision by adding a rule that refuses absent blocks, which turns
+six points red — the two about absent blocks, three that need the tenancy-free
+reference envelope to move, and the three-conditions point, which finds a
+fourth fail-closed rule.
+
+---
+
+## D14. Tenant predicates apply to crossings only, and the home hall must be declared
+**Date:** 2026-09-02.
+
+Every rule in this repository is gated on the job leaving its hall, and a
+registry point asserts that a hall-local job gets no findings. The tenant
+predicates follow the same gate. A hall-local job's slice is admitted by the
+slice packer under its own tenancy model — `slice-packer-torus` has one — and a
+local job uses no wavelength, so an organization that has spent its quota in its home hall
+with a local job is the slice packer's refusal, not this one's. The random
+population the hall-local point draws from now carries tenancy blocks half the
+time, so the gate is tested rather than assumed.
+
+The second half: a block that declares quota state must include the hall the
+`slice_rect` sits in. Without that, a declaration covering only the far hall
+would let TN1 pass on the hall the job actually takes a slice in. The envelope
+refuses the shape at construction rather than the rule tolerating it. Halls the
+*plant* says the job occupies that the block does not cover are a gap, not a
+refusal — D13's reasoning again.
+
+---
+
+## D15. Every tenant refusal is `deny`
+**Date:** 2026-09-02.
+
+`escalate` and `move` were considered. `escalate` is for the questions the
+specification reserves for a human — a blast radius past the autonomous limit,
+an autonomy level too high for the action — and a spent quota carries no
+question: the organization may hold no more slices there, and that is the
+policy's whole content. `move` would have the contract name a hall it cannot
+see; the rule set runs with no plant model (D6), and a `move` toward an
+undeclared hall is a guess presented as an instruction.
+
+So all four are `deny`, with PL2 and PL3 as the analogue: a limit that is simply
+exhausted. Policy can relax three of them, by name — `enforce_org_slice_quota`,
+`allow_lambda_sharing_across_orgs`, `dedicated_tenancy_classes` — and the audit
+record shows when it did. The pairwise ban, TN4, has no switch. It is the job's
+own declaration about itself, and a policy that overrode it would be overriding
+the submitter rather than the operator.
+
+---
+
+## D16. Quota state is declared, never fetched
+**Date:** 2026-09-02.
+
+The contract stays inert (D1): no network, no quota service. `held`, `quota`
+and the wavelength's occupancy are on the envelope, as `measured_il_db` is —
+claims the audit record carries.
+
+Rejected: a second adapter surface, a `QuotaSource` beside `StitchController`.
+The controller protocol exists because the fail-closed conditions need a
+measurement's *age* and *reachability*, which are qualities of an observation.
+A quota is bookkeeping the scheduler already holds, and a second adapter would
+double the integration burden for a number the caller has in hand.
+
+Consequence: the DECLINED list gains two entries. No published figure fixes any
+organization's quota, so TN1 is checked for effect and never for correctness;
+and the contract cannot see whether a declared occupancy is true. A wrong
+declaration is a wrong verdict, and the record makes it findable afterwards —
+it does not make it catchable at admission. `ASSUMPTIONS.md` A12 and A13 say
+what has to hold.

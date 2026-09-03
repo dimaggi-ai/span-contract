@@ -26,7 +26,7 @@ from . import __version__
 from .adapters import DelayNode
 from .plant import SpanGraph, Stitch
 from .decisions import Decision, ScaleOut
-from .envelope import SliceRect, SpanEnvelope
+from .envelope import CoTenant, LambdaSharing, SliceQuota, SliceRect, SpanEnvelope, Tenancy
 from .rules import Policy
 from .schema import envelope_schema
 from .validator import Plant, audit_record, validate
@@ -79,6 +79,22 @@ def _example_envelope() -> SpanEnvelope:
         measured_age_s=30.0,
         stitch_api_reachable=True,
         labels={"graph_hash": graph_hash, "cut": "pp", "job": "example-405b"},
+        # A tenancy block that clears every tenant predicate, so the reader
+        # sees the shape: room under the quota in both halls, and a wavelength
+        # shared only with the organization's own other job.
+        tenancy=Tenancy(
+            org_id="org-blue",
+            tenancy_class="shared",
+            slices=(
+                SliceQuota("hall-a", held=2, quota=4),
+                SliceQuota("hall-b", held=1, quota=4),
+            ),
+            lambda_sharing=LambdaSharing(
+                "ch-33",
+                co_tenants=(CoTenant("org-blue", "example-70b"),),
+                must_not_share_with=(),
+            ),
+        ),
     )
     return env.replace(compile_cache_key=env.expected_compile_cache_key(graph_hash))
 
@@ -89,6 +105,10 @@ def _print_verdict(env: SpanEnvelope, verdict, policy: Policy, as_json: bool) ->
         return
     print(f"decision: {verdict.decision.value.upper()}")
     print(f"regime:   {env.regime} ({env.span_rtt_us:.0f} us RTT)")
+    if env.tenancy is None:
+        print("tenancy:  not declared")
+    else:
+        print(f"tenancy:  {env.tenancy.org_id} ({env.tenancy.tenancy_class})")
     if verdict.findings:
         print("\nfindings:")
         for finding in verdict.findings:
@@ -151,7 +171,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     try:
         env = SpanEnvelope.from_dict(_load(args.envelope))
-    except (OSError, ValueError, KeyError) as exc:
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"could not read envelope: {exc}", file=sys.stderr)
         return 2
 
