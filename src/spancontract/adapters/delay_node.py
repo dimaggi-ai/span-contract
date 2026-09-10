@@ -36,6 +36,7 @@ from dataclasses import dataclass, replace
 from typing import Optional, Protocol, runtime_checkable
 
 from ..envelope import SpanEnvelope, latency_regime
+from ..numeric import nonnegative
 
 #: Speed of light in single-mode fibre, metres per second. Group index ~1.4682.
 FIBRE_C_M_PER_S = 299_792_458.0 / 1.4682
@@ -64,6 +65,15 @@ class PathMeasurement:
     bit_error_rate: Optional[float] = None
     bandwidth_gbps: Optional[float] = None
     age_s: float = 0.0
+
+    def __post_init__(self):
+        nonnegative(self.age_s, "age_s")
+        for name in ("rtt_us", "insertion_loss_db", "bit_error_rate", "bandwidth_gbps"):
+            value = getattr(self, name)
+            if value is not None:
+                nonnegative(value, name)
+        if self.bit_error_rate is not None and self.bit_error_rate > 1:
+            raise ValueError("bit_error_rate must be <= 1")
 
     @property
     def regime(self) -> Optional[str]:
@@ -109,6 +119,9 @@ class DelayNode:
     age_s: float = 0.0
 
     def __post_init__(self) -> None:
+        for name in ("distance_km", "bandwidth_gbps", "excess_loss_db", "amplifier_gain_db",
+                     "bit_error_rate", "equipment_latency_us", "age_s"):
+            nonnegative(getattr(self, name), name)
         if self.distance_km < 0:
             raise ValueError("distance_km must be non-negative")
         if self.bandwidth_gbps <= 0:

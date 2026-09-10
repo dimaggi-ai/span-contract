@@ -35,6 +35,7 @@ from typing import Callable, List, Optional, Tuple
 
 from .decisions import Decision
 from .envelope import SpanEnvelope
+from .numeric import nonnegative
 
 
 @dataclass(frozen=True)
@@ -99,6 +100,15 @@ class Policy:
     #: Tenancy classes whose jobs must have the wavelength to themselves,
     #: co-tenants from their own organization included.
     dedicated_tenancy_classes: Tuple[str, ...] = ("dedicated",)
+
+    def __post_init__(self):
+        for name in ("measurement_ttl_s", "sync_training_max_rtt_us",
+                     "tensor_parallel_max_rtt_us", "max_insertion_loss_db",
+                     "max_bit_error_rate", "min_thermal_headroom_k", "min_power_headroom_kw"):
+            nonnegative(getattr(self, name), name)
+        nonnegative(self.max_autonomous_blast_radius, "max_autonomous_blast_radius", integer=True)
+        if self.max_bit_error_rate > 1:
+            raise ValueError("max_bit_error_rate must be <= 1")
 
 
 # --------------------------------------------------------------------------

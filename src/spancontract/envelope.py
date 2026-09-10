@@ -48,6 +48,7 @@ from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Dict, Optional, Tuple
 
 from .decisions import SPAN_MODES, ScaleOut
+from .numeric import nonnegative
 
 #: Latency regimes, named to match the atlas in the ``network-vs-more-gpus``
 #: repository so a verdict here can be read against a retention number there.
@@ -71,6 +72,7 @@ TENANCY_CLASSES = ("dedicated", "shared")
 
 def latency_regime(rtt_us: float) -> str:
     """Name the regime a measured round-trip time falls in."""
+    nonnegative(rtt_us, "rtt_us")
     for name, upper in REGIME_BOUNDS:
         if rtt_us <= upper:
             return name
@@ -97,6 +99,8 @@ class SliceRect:
             raise ValueError("slice_rect origin and extent must have equal rank")
         if not self.origin:
             raise ValueError("slice_rect must have rank >= 1")
+        for x in self.origin + self.extent:
+            nonnegative(x, "slice coordinate/extent", integer=True)
         if any(o < 0 for o in self.origin):
             raise ValueError("slice_rect.origin must be non-negative")
         if any(e < 1 for e in self.extent):
@@ -137,6 +141,8 @@ class SliceQuota:
     def __post_init__(self) -> None:
         if not self.hall_id:
             raise ValueError("slice quota hall_id must be non-empty")
+        nonnegative(self.held, "held", integer=True)
+        nonnegative(self.quota, "quota", integer=True)
         if self.held < 0:
             raise ValueError("slices held must be non-negative")
         if self.quota < 0:
@@ -420,8 +426,11 @@ class SpanEnvelope:
         for name in ("span_rtt_us", "span_bw_gbps", "measured_il_db",
                      "checkpoint_window_s", "collective_window_s", "ingest_budget_GBps",
                      "thermal_headroom_k", "ride_through_s", "power_headroom_kw"):
-            if getattr(self, name) < 0:
-                raise ValueError(f"{name} must be non-negative")
+            nonnegative(getattr(self, name), name)
+        nonnegative(self.measured_ber, "measured_ber")
+        nonnegative(self.blast_radius, "blast_radius", integer=True)
+        if self.measured_age_s is not None:
+            nonnegative(self.measured_age_s, "measured_age_s")
         if not 0.0 <= self.measured_ber <= 1.0:
             raise ValueError("measured_ber must be a probability in [0, 1]")
         if self.blast_radius < 1:

@@ -1,0 +1,181 @@
+{
+  "schema_version": "dimaggi-evidence/v1",
+  "coverage_scope": "Consequential headline claims, governing assumptions and model limits. Not a catalog of helper constants or proof that citations are correct.",
+  "sources": {
+    "src/spancontract/rules.py": {
+      "source_type": "model-assumption",
+      "location": "src/spancontract/rules.py",
+      "version_date": "2026-09-10 closure working tree; SHA-256 bound below",
+      "license_or_reuse": "Repository-authored analysis; third-party facts referenced, no new external raw data redistributed",
+      "scope": "Local authoritative definition or claim. External provenance retained in SOURCES/REFERENCES and inline citations; scenario choices are not empirical measurements."
+    },
+    "src/spancontract/numeric.py": {
+      "source_type": "model-assumption",
+      "location": "src/spancontract/numeric.py",
+      "version_date": "2026-09-10 closure working tree; SHA-256 bound below",
+      "license_or_reuse": "Repository-authored analysis; third-party facts referenced, no new external raw data redistributed",
+      "scope": "Local authoritative definition or claim. External provenance retained in SOURCES/REFERENCES and inline citations; scenario choices are not empirical measurements."
+    },
+    "ASSUMPTIONS.md": {
+      "source_type": "model-assumption",
+      "location": "ASSUMPTIONS.md",
+      "version_date": "2026-09-10 closure working tree; SHA-256 bound below",
+      "license_or_reuse": "Repository-authored analysis; third-party facts referenced, no new external raw data redistributed",
+      "scope": "Local authoritative definition or claim. External provenance retained in SOURCES/REFERENCES and inline citations; scenario choices are not empirical measurements."
+    },
+    "README.md": {
+      "source_type": "model-assumption",
+      "location": "README.md",
+      "version_date": "2026-09-10 closure working tree; SHA-256 bound below",
+      "license_or_reuse": "Repository-authored analysis; third-party facts referenced, no new external raw data redistributed",
+      "scope": "Local authoritative definition or claim. External provenance retained in SOURCES/REFERENCES and inline citations; scenario choices are not empirical measurements."
+    }
+  },
+  "inputs": [
+    {
+      "name": "measurement TTL",
+      "unit": "seconds",
+      "evidence_class": "scenario",
+      "sources": [
+        "src/spancontract/rules.py"
+      ],
+      "transformation": "Operator policy choice; not empirical freshness limit",
+      "uncertainty": "Deliberately hypothetical/operator policy; not an observed universal bound",
+      "affected_outputs": [
+        "published conclusion",
+        "README.md"
+      ],
+      "value": 300,
+      "valid_bounds": [
+        0,
+        30000
+      ]
+    },
+    {
+      "name": "synchronous RTT cutoff",
+      "unit": "microseconds",
+      "evidence_class": "scenario",
+      "sources": [
+        "src/spancontract/rules.py"
+      ],
+      "transformation": "Conservative policy informed by model atlas, not hardware limit",
+      "uncertainty": "Deliberately hypothetical/operator policy; not an observed universal bound",
+      "affected_outputs": [
+        "published conclusion",
+        "README.md"
+      ],
+      "value": 2000,
+      "valid_bounds": [
+        0,
+        200000
+      ]
+    },
+    {
+      "name": "insertion loss limit",
+      "unit": "dB",
+      "evidence_class": "scenario",
+      "sources": [
+        "src/spancontract/rules.py"
+      ],
+      "transformation": "Operator threshold",
+      "uncertainty": "Deliberately hypothetical/operator policy; not an observed universal bound",
+      "affected_outputs": [
+        "published conclusion",
+        "README.md"
+      ],
+      "value": 20,
+      "valid_bounds": [
+        0,
+        2000
+      ]
+    },
+    {
+      "name": "BER limit",
+      "unit": "bit errors/bit",
+      "evidence_class": "scenario",
+      "sources": [
+        "src/spancontract/rules.py"
+      ],
+      "transformation": "Operator threshold, not fitted receiver curve",
+      "uncertainty": "Deliberately hypothetical/operator policy; not an observed universal bound",
+      "affected_outputs": [
+        "published conclusion",
+        "README.md"
+      ],
+      "value": 1e-9,
+      "valid_bounds": [
+        0,
+        1
+      ]
+    },
+    {
+      "name": "autonomous blast radius",
+      "unit": "halls",
+      "evidence_class": "scenario",
+      "sources": [
+        "src/spancontract/rules.py"
+      ],
+      "transformation": "Safety scope policy",
+      "uncertainty": "Deliberately hypothetical/operator policy; not an observed universal bound",
+      "affected_outputs": [
+        "published conclusion",
+        "README.md"
+      ],
+      "value": 1,
+      "valid_bounds": [
+        0,
+        100
+      ]
+    }
+  ],
+  "results": [
+    {
+      "name": "fail-closed admission",
+      "unit": "claim",
+      "evidence_class": "sanity-bound",
+      "sources": [
+        "src/spancontract/rules.py"
+      ],
+      "transformation": "Dark API, stale path and topology mismatch refuse; missing optional tenancy is explicitly not checked",
+      "uncertainty": "Scope and qualifications stated in transformation and linked source; no unreported confidence interval",
+      "affected_outputs": [
+        "published conclusion",
+        "README.md"
+      ],
+      "statement": "Dark API, stale path and topology mismatch refuse; missing optional tenancy is explicitly not checked"
+    },
+    {
+      "name": "nonfinite input",
+      "unit": "claim",
+      "evidence_class": "sanity-bound",
+      "sources": [
+        "src/spancontract/numeric.py"
+      ],
+      "transformation": "Runtime contract rejects NaN, infinities, booleans and malformed numerical measurements",
+      "uncertainty": "Scope and qualifications stated in transformation and linked source; no unreported confidence interval",
+      "affected_outputs": [
+        "published conclusion",
+        "README.md"
+      ],
+      "statement": "Runtime contract rejects NaN, infinities, booleans and malformed numerical measurements"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "src/spancontract/rules.py",
+      "sha256": "b6cb9b96ae8c29d08a86ba5783c2f0ead748439bd83a2be8aa34cafa45acf59a"
+    },
+    {
+      "path": "src/spancontract/numeric.py",
+      "sha256": "fd601042f107afdbbc15521cecad38afd77bce7979c0acb98b5146863f4d9b55"
+    },
+    {
+      "path": "ASSUMPTIONS.md",
+      "sha256": "cf0cbbdd566f06beadf194ae22bdb385168dc2f88fb637322e9d977df802f8e8"
+    },
+    {
+      "path": "README.md",
+      "sha256": "1698a87dddd5fdb7f28f9ac1e80d473494b6c0ea4548026ca789ef431bcee693"
+    }
+  ]
+}
