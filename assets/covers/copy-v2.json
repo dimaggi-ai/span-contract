@@ -1,0 +1,18 @@
+[
+  {
+    "repo": "span-contract",
+    "label": "AI INFRASTRUCTURE RESEARCH",
+    "title": [
+      "May this AI job",
+      "cross data halls?"
+    ],
+    "subtitle": [
+      "An admission contract and validator",
+      "for distributed training."
+    ],
+    "fontSize": 58,
+    "background": "illustration-v2.png",
+    "output": ".",
+    "source_readme_commit": "27efc936a5f3f3ed040a486874048443bcf41253"
+  }
+]
