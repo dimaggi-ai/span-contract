@@ -163,7 +163,7 @@
   "artifacts": [
     {
       "path": "src/spancontract/rules.py",
-      "sha256": "b6cb9b96ae8c29d08a86ba5783c2f0ead748439bd83a2be8aa34cafa45acf59a"
+      "sha256": "d12b3a312d26cc160e2ae1d7a7e076dc874a2bb5e238bc2b51f76c8aa95df3fb"
     },
     {
       "path": "src/spancontract/numeric.py",
@@ -175,7 +175,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "1698a87dddd5fdb7f28f9ac1e80d473494b6c0ea4548026ca789ef431bcee693"
+      "sha256": "49bdfcd1a9e90caa0d0633be440e70134f12d176018d458274c77e9b4370a3e0"
     }
   ]
 }

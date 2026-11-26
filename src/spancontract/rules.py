@@ -213,8 +213,16 @@ def rule_tensor_parallel_never_spans(env: SpanEnvelope, policy: Policy) -> Optio
     parallelism pays the stitch once per layer per micro-batch, so no circuit
     width rescues it.
     """
-    cut = str(env.labels.get("cut", "")).lower()
-    if not env.spans_halls or cut not in ("tp", "tensor", "tensor_parallel"):
+    if not env.spans_halls:
+        return None
+    cut = env.labels.get("cut")
+    if not isinstance(cut, str) or cut.lower() not in ("pp", "dp", "tp", "tensor", "tensor_parallel"):
+        return Finding(
+            "LR2", Decision.DENY,
+            "a spanning envelope requires labels.cut to be a recognized string: "
+            "pp, dp, tp, tensor, or tensor_parallel (case-insensitive)",
+        )
+    if cut.lower() not in ("tp", "tensor", "tensor_parallel"):
         return None
     if env.span_rtt_us > policy.tensor_parallel_max_rtt_us:
         return Finding(

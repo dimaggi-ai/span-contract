@@ -209,3 +209,18 @@ Part of a program on the usable capacity of large accelerator fleets:
 ## License
 
 MIT. Copyright (c) 2026 Margaret Nanyonga.
+
+### Spanning cut input contract
+
+For an envelope spanning halls, `labels.cut` must be a string equal to `pp`,
+`dp`, `tp`, `tensor`, or `tensor_parallel`, ignoring case. A missing, empty,
+non-string or unsupported cut produces an LR2 **DENY** finding (CLI exit 1).
+Aliases such as `tensor-parallel` or `TP-8` are not inferred. Correct the cut
+to a supported value and validate again; the normal tensor-parallel RTT
+restriction still applies. Hall-local envelopes are unaffected, and other
+labels remain free-form audit metadata.
+
+This cut check does not validate workload throughput against `span_bw_gbps`
+or `ingest_budget_GBps`. Those fields are carried and numerically validated,
+but the decision rules do not assess their capacity sufficiency. A permitted
+verdict is not a bandwidth or ingest-capacity guarantee.
