@@ -201,6 +201,24 @@ point asserts the gap is still there, so that quietly closing it in a future
 commit shows up as a failing check rather than a tidy-up. `DECISIONS.md` D3 has
 the reasoning.
 
+## Spanning cut input contract
+
+For any envelope whose `span_mode` is not `local`, `labels.cut` must be a string
+equal to `pp`, `dp`, `tp`, `tensor`, or `tensor_parallel`, ignoring case. A missing, empty,
+non-string or unsupported cut produces an LR2 **DENY** finding (CLI exit 1).
+Aliases such as `tensor-parallel` or `TP-8` are not inferred. Correct the cut
+to a supported value and validate again; the normal tensor-parallel RTT
+restriction still applies. Hall-local envelopes with a schema-valid object
+for `labels` are unaffected, and other labels remain free-form audit metadata.
+For malformed hall-local `labels` such as `null`, a string or a list, the early
+return now skips this rule instead of raising the previous `AttributeError`;
+this does not make those inputs schema-valid.
+
+This cut check does not validate workload throughput against `span_bw_gbps`
+or `ingest_budget_GBps`. Those fields are carried and numerically validated,
+but the decision rules do not assess their capacity sufficiency. A permitted
+verdict is not a bandwidth or ingest-capacity guarantee.
+
 ## Series
 
 Part of a program on the usable capacity of large accelerator fleets:
