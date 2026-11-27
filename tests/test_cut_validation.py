@@ -7,17 +7,31 @@ from spancontract.cli import main
 from spancontract.rules import rule_tensor_parallel_never_spans
 
 
-@pytest.mark.parametrize('cut', [None, '', 'tensor-parallel', 'TP-8', 'unknown', 0, True, [], {}, b'tp'])
+class StringifiesToCut:
+    def __str__(self):
+        return 'pp'
+
+
+@pytest.mark.parametrize('cut', [None, '', 'tensor-parallel', 'TP-8', 'unknown', 0, True, [], {}, b'tp',
+                                 ' tp', 'tp ', 'pp\n', StringifiesToCut()])
 def test_spanning_unsupported_cut_is_denied(cut):
     env = clean(labels={**clean().labels, 'cut': cut})
     verdict = validate(env)
     assert verdict.decision is Decision.DENY
-    assert any(f.rule_id == 'LR2' and f.decision is Decision.DENY for f in verdict.findings)
+    findings = [f for f in verdict.findings if f.rule_id == 'LR2']
+    assert len(findings) == 1
+    assert findings[0].decision is Decision.DENY
+    assert not findings[0].fail_closed
 
 
 def test_missing_cut_refusal_and_recovery():
     env = clean(labels={'graph_hash': clean().labels['graph_hash']})
-    assert validate(env).decision is Decision.DENY
+    verdict = validate(env)
+    assert verdict.decision is Decision.DENY
+    findings = [f for f in verdict.findings if f.rule_id == 'LR2']
+    assert len(findings) == 1
+    assert findings[0].decision is Decision.DENY
+    assert not findings[0].fail_closed
     assert validate(env.replace(labels={**env.labels, 'cut': 'pp'})).decision is Decision.SPAN
 
 
@@ -32,6 +46,7 @@ def test_recognized_cuts_preserve_decisions(cut):
 def test_hall_local_cut_is_not_applicable(cut):
     env = clean(span_mode='local', labels={**clean().labels, 'cut': cut})
     assert not env.spans_halls
+    assert validate(env).decision is Decision.LOCAL
     assert rule_tensor_parallel_never_spans(env, Policy()) is None
 
 
